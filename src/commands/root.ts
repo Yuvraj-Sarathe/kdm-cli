@@ -7,6 +7,7 @@ import { registerHealthCommand } from './health';
 import { registerWatchCommand } from './watch';
 import { registerLogsCommand } from './logs';
 import { logger } from '../utils/logger';
+import { showWelcomeBanner } from '../ui/banner';
 
 program
   .name('kdm')
@@ -21,6 +22,8 @@ registerLogsCommand(program);
 
 const run = async () => {
   if (!process.argv.slice(2).length) {
+    showWelcomeBanner('1.0.0');
+
     const [dockerStatus, k8sStatus] = await Promise.all([
       checkDockerConnection(),
       checkK8sConnection()
@@ -29,7 +32,6 @@ const run = async () => {
     const dockerStr = dockerStatus.connected ? chalk.green('Connected') : chalk.red('Disconnected');
     const k8sStr = k8sStatus.connected ? chalk.green('Connected') : chalk.red('Disconnected');
 
-    console.log(chalk.bold.blue('KDM v1.0\n'));
     console.log(`Docker: ${dockerStr}`);
     console.log(`Kubernetes: ${k8sStr}\n`);
     console.log(`Running Containers: ${chalk.yellow(dockerStatus.containerCount)}`);
