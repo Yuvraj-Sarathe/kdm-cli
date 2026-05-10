@@ -1,0 +1,16 @@
+# CODEOWNERS
+# GitHub will automatically request reviews from these owners
+# when a pull request modifies the matching files/paths.
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global owner — @utkarsh232005 is required reviewer for all files
+* @utkarsh232005
+
+# Workflow files
+.github/ @utkarsh232005
+
+# Core source
+src/ @utkarsh232005
+
+# Package config
+package.json @utkarsh232005
