@@ -44,7 +44,9 @@ jobs:
         run: "npm version ${{ github.event.inputs.release_type }} -m 'chore: release v%s'"
 
       - name: Push changes and tags
-        run: git push --follow-tags
+        run: |
+          git pull --rebase origin main
+          git push --follow-tags
 
       - name: Publish to npm
         run: npm publish --access public
