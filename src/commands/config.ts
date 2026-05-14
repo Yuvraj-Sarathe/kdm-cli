@@ -30,6 +30,8 @@ export const registerConfigCommand = (program: Command) => {
         }
 
         if (choice === 'discord') {
+          printDiscordWebhookGuide();
+
           const webhook = await input({
             message: 'Discord Webhook URL:',
             validate: (v) => {
@@ -43,6 +45,8 @@ export const registerConfigCommand = (program: Command) => {
           setConfig('notification_service', 'discord');
           console.log(chalk.green('\n✓ Discord Webhook configured.'));
         } else if (choice === 'email') {
+          printEmailSmtpGuide();
+
           const host = await input({
             message: 'SMTP Host:',
             placeholder: 'smtp.gmail.com',
@@ -73,7 +77,6 @@ export const registerConfigCommand = (program: Command) => {
           setConfig('notification_service', 'email');
           
           console.log(chalk.green('\n✓ Email SMTP configured.'));
-          console.log(chalk.yellow('! Important: Set your SMTP password in the KDM_SMTP_PASSWORD environment variable for notifications to work.'));
         }
 
         console.log(chalk.green(`✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`));
@@ -127,4 +130,26 @@ export const registerConfigCommand = (program: Command) => {
       clearConfig();
       console.log(chalk.green('✓ Configuration cleared.'));
     });
+};
+
+const printDiscordWebhookGuide = () => {
+  console.log(chalk.gray('\n──────────────────────────────────────────────────'));
+  console.log(chalk.cyan('Discord webhook setup'));
+  console.log(chalk.white('  1. Open your Discord server settings.'));
+  console.log(chalk.white('  2. Go to Integrations > Webhooks.'));
+  console.log(chalk.white('  3. Create a new webhook and choose the alert channel.'));
+  console.log(chalk.white('  4. Copy the webhook URL and paste it below.'));
+  console.log(chalk.dim('     The URL should start with https://discord.com/api/webhooks/.'));
+  console.log(chalk.gray('──────────────────────────────────────────────────\n'));
+};
+
+const printEmailSmtpGuide = () => {
+  console.log(chalk.gray('\n──────────────────────────────────────────────────'));
+  console.log(chalk.cyan('Email SMTP setup'));
+  console.log(chalk.white('  1. Find your provider SMTP settings before continuing.'));
+  console.log(chalk.white('  2. Common hosts: smtp.gmail.com for Gmail, smtp.office365.com for Outlook.'));
+  console.log(chalk.white('  3. Use port 587 for STARTTLS unless your provider says otherwise.'));
+  console.log(chalk.white('  4. Set the SMTP password in KDM_SMTP_PASSWORD before sending alerts.'));
+  console.log(chalk.dim('     Gmail accounts with 2FA usually require an App Password.'));
+  console.log(chalk.gray('──────────────────────────────────────────────────\n'));
 };

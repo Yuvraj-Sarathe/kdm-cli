@@ -62,6 +62,8 @@ describe('config command', () => {
     expect(configUtils.clearNotificationCredentials).toHaveBeenCalled();
     expect(configUtils.setConfig).toHaveBeenCalledWith('notification_service', 'discord');
     expect(configUtils.setConfig).toHaveBeenCalledWith('discord_webhook', 'https://discord.com/api/webhooks/123456789/token-here');
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringMatching(/Discord webhook setup/i));
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Integrations > Webhooks'));
   });
 
   it('should call select, multiple inputs and setConfig on email setup', async () => {
@@ -79,6 +81,8 @@ describe('config command', () => {
     expect(configUtils.setConfig).toHaveBeenCalledWith('email_port', 587);
     expect(configUtils.setConfig).toHaveBeenCalledWith('email_user', 'user@test.com');
     expect(configUtils.setConfig).toHaveBeenCalledWith('email_to', 'to@test.com');
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringMatching(/Email SMTP setup/i));
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('KDM_SMTP_PASSWORD'));
   });
 
   it('should call setConfig on config set', async () => {
