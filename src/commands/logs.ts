@@ -9,7 +9,7 @@ export const registerLogsCommand = (program: Command) => {
     .action(async (name) => {
       const spinner = createSpinner(`Fetching logs for ${name}...`).start();
       try {
-        // Spinner should be driven by actual work here in the future
+        // TODO: Implement actual log fetching logic
         spinner.stop(`Logs for ${name} fetched`);
         logger.info(`Showing logs for ${name}...`);
       } catch (error) {

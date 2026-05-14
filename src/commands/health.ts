@@ -9,7 +9,7 @@ export const registerHealthCommand = (program: Command) => {
     .action(async (target) => {
       const spinner = createSpinner(`Checking health for ${target}...`).start();
       try {
-        // Spinner should be driven by actual work here in the future
+        // TODO: Implement actual health check logic
         spinner.stop(`Health check for ${target} complete`);
         logger.info(`Showing health for ${target}...`);
       } catch (error) {
