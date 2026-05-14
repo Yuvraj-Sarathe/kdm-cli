@@ -13,7 +13,10 @@ export const registerHealthCommand = (program: Command) => {
         spinner.stop(`Health check for ${target} complete`);
         logger.info(`Showing health for ${target}...`);
       } catch (error) {
-        spinner.fail(`Health check for ${target} failed: ${(error as Error).message}`);
+        const errorMessage = (error as Error).message;
+        spinner.fail(`Health check for ${target} failed: ${errorMessage}`);
+        logger.error(`Health check for ${target} failed: ${errorMessage}`, error);
+        throw error;
       }
     });
 };

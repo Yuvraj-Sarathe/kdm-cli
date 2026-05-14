@@ -13,7 +13,10 @@ export const registerLogsCommand = (program: Command) => {
         spinner.stop(`Logs for ${name} fetched`);
         logger.info(`Showing logs for ${name}...`);
       } catch (error) {
-        spinner.fail(`Failed to fetch logs for ${name}: ${(error as Error).message}`);
+        const errorMessage = (error as Error).message;
+        spinner.fail(`Failed to fetch logs for ${name}: ${errorMessage}`);
+        logger.error(`Failed to fetch logs for ${name}: ${errorMessage}`, error);
+        throw error;
       }
     });
 };
