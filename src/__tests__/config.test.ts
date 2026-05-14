@@ -8,6 +8,7 @@ vi.mock('../utils/config', () => ({
   setConfig: vi.fn(),
   getConfig: vi.fn(() => ({})),
   clearConfig: vi.fn(),
+  clearNotificationCredentials: vi.fn(),
 }));
 
 vi.mock('@vr_patel/tui', () => ({
@@ -34,14 +35,26 @@ describe('config command', () => {
     expect(configCmd?.commands.map((c) => c.name())).toEqual(['setup', 'set', 'list', 'clear']);
   });
 
+  it('should clear credentials and set service to none', async () => {
+    (select as any).mockResolvedValue('none');
+    await program.parseAsync(['node', 'test', 'config', 'setup']);
+    
+    const { setConfig } = await import('../utils/config');
+    expect(select).toHaveBeenCalled();
+    expect(setConfig).toHaveBeenCalledWith('notification_service', 'none');
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringMatching(/Notifications disabled/i));
+  });
+
   it('should call select, input and setConfig on discord setup', async () => {
     (select as any).mockResolvedValue('discord');
-    (input as any).mockResolvedValue('https://discord.com/api/webhooks/123');
+    (input as any).mockResolvedValue('https://discord.com/api/webhooks/123/abc');
     await program.parseAsync(['node', 'test', 'config', 'setup']);
+    
+    const { setConfig } = await import('../utils/config');
     expect(select).toHaveBeenCalled();
     expect(input).toHaveBeenCalled();
     expect(setConfig).toHaveBeenCalledWith('notification_service', 'discord');
-    expect(setConfig).toHaveBeenCalledWith('discord_webhook', 'https://discord.com/api/webhooks/123');
+    expect(setConfig).toHaveBeenCalledWith('discord_webhook', 'https://discord.com/api/webhooks/123/abc');
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringMatching(/Discord Webhook configured/i));
   });
 
@@ -55,6 +68,7 @@ describe('config command', () => {
 
     await program.parseAsync(['node', 'test', 'config', 'setup']);
     
+    const { setConfig } = await import('../utils/config');
     expect(setConfig).toHaveBeenCalledWith('notification_service', 'email');
     expect(setConfig).toHaveBeenCalledWith('email_host', 'smtp.gmail.com');
     expect(setConfig).toHaveBeenCalledWith('email_port', 587);

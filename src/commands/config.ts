@@ -10,59 +10,75 @@ export const registerConfigCommand = (program: Command) => {
 
   config
     .command('setup')
-    .description('Interactively setup notification service')
+    .description('Interactively set up notification service')
     .action(async () => {
       try {
         const choice = await select({
-          message: "Select notification service:",
+          message: 'Select notification service:',
           options: [
-            { label: "Discord", value: "discord", description: "Send alerts to a Discord channel via Webhook" },
-            { label: "Email (SMTP)", value: "email", description: "Send alerts via Email SMTP" },
-            { label: "None", value: "none", description: "Disable notifications" },
+            { label: 'Discord', value: 'discord', description: 'Send alerts to a Discord channel via Webhook' },
+            { label: 'Email (SMTP)', value: 'email', description: 'Send alerts via Email SMTP' },
+            { label: 'None', value: 'none', description: 'Disable notifications' },
           ],
         });
 
-        setConfig('notification_service', choice);
+        if (choice === 'none') {
+          clearNotificationCredentials();
+          setConfig('notification_service', 'none');
+          console.log(chalk.green('\n✓ Notifications disabled.'));
+          return;
+        }
 
         if (choice === 'discord') {
           const webhook = await input({
-            message: "Discord Webhook URL:",
-            validate: (v) => v.startsWith('https://discord.com/api/webhooks/') || v.startsWith('https://ptb.discord.com/api/webhooks/') || "Must be a valid Discord webhook URL",
+            message: 'Discord Webhook URL:',
+            validate: (v) => {
+              const discordWebhookRegex = /^https:\/\/(?:ptb\.|canary\.)?discord\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+              return discordWebhookRegex.test(v) || 'Must be a valid Discord webhook URL (including ID and Token)';
+            },
           });
+          
+          clearNotificationCredentials();
           setConfig('discord_webhook', webhook);
-          console.log(chalk.green(`\n✓ Discord Webhook configured.`));
+          setConfig('notification_service', 'discord');
+          console.log(chalk.green('\n✓ Discord Webhook configured.'));
         } else if (choice === 'email') {
           const host = await input({
-            message: "SMTP Host:",
-            placeholder: "smtp.gmail.com",
-            validate: (v) => v.length > 0 || "Host is required",
+            message: 'SMTP Host:',
+            placeholder: 'smtp.gmail.com',
+            validate: (v) => v.length > 0 || 'Host is required',
           });
           const portStr = await input({
-            message: "SMTP Port:",
-            defaultValue: "587",
-            validate: (v) => !isNaN(parseInt(v)) || "Must be a number",
+            message: 'SMTP Port:',
+            defaultValue: '587',
+            validate: (v) => {
+              const port = parseInt(v, 10);
+              return (/^\d+$/.test(v) && port > 0 && port <= 65535) || 'Must be a valid port number (1-65535)';
+            },
           });
           const user = await input({
-            message: "SMTP User:",
-            validate: (v) => v.includes('@') || "Must be a valid email",
+            message: 'SMTP User:',
+            validate: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || 'Must be a valid email address',
           });
           const to = await input({
-            message: "Alert Recipient Email:",
-            validate: (v) => v.includes('@') || "Must be a valid email",
+            message: 'Alert Recipient Email:',
+            validate: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || 'Must be a valid email address',
           });
 
+          clearNotificationCredentials();
           setConfig('email_host', host);
           setConfig('email_port', parseInt(portStr, 10));
           setConfig('email_user', user);
           setConfig('email_to', to);
+          setConfig('notification_service', 'email');
           
-          console.log(chalk.green(`\n✓ Email SMTP configured.`));
-          console.log(chalk.yellow('! Note: Please set your SMTP password in the KDM_SMTP_PASSWORD environment variable.'));
+          console.log(chalk.green('\n✓ Email SMTP configured.'));
+          console.log(chalk.yellow('! Important: Set your SMTP password in the KDM_SMTP_PASSWORD environment variable for notifications to work.'));
         }
 
-        console.log(chalk.green(`\n✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`));
+        console.log(chalk.green(`✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`));
       } catch (error) {
-        console.error(chalk.red(`✗ Setup cancelled or failed: ${(error as Error).message}`));
+        console.error(chalk.red(`✗ Set up cancelled or failed: ${(error as Error).message}`));
       }
     });
 
