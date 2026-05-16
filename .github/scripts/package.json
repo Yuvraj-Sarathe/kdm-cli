@@ -1,0 +1,7 @@
+{
+  "name": "kdm-cli-org-bot-scripts",
+  "private": true,
+  "devDependencies": {
+    "eslint": "^9.0.0"
+  }
+}
