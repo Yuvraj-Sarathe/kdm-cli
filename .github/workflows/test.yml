@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Node.cjs
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20' # the project uses Node.cjs, version 20 is a good default
           cache: 'npm'
