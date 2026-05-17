@@ -44,6 +44,12 @@ describe('version-check utilities', () => {
     it('should return empty string if versions are equal', () => {
       expect(getUpdateType('1.0.0', '1.0.0')).toBe('');
     });
+
+    it('should return empty string for downgrades', () => {
+      expect(getUpdateType('2.0.0', '1.0.0')).toBe('');
+      expect(getUpdateType('1.1.0', '1.0.0')).toBe('');
+      expect(getUpdateType('1.0.1', '1.0.0')).toBe('');
+    });
   });
 
   describe('checkForUpdates', () => {
@@ -56,7 +62,7 @@ describe('version-check utilities', () => {
 
     afterEach(() => {
       vi.unstubAllGlobals();
-      vi.clearAllMocks();
+      vi.restoreAllMocks();
     });
 
     it('should log an error if registry response is invalid', async () => {

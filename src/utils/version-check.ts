@@ -32,7 +32,7 @@ export function compareSemver(a: string, b: string): 'lt' | 'gt' | 'eq' {
 // Determine update type for messaging
 export function getUpdateType(installed: string, latest: string): string {
   const cmp = compareSemver(installed, latest);
-  if (cmp === 'eq') return '';
+  if (cmp === 'eq' || cmp === 'gt') return '';
   const [i1 = 0, i2 = 0] = installed.replace(/^v/, '').split('.').map(Number);
   const [l1 = 0, l2 = 0] = latest.replace(/^v/, '').split('.').map(Number);
   if (l1 > i1) return 'major';
