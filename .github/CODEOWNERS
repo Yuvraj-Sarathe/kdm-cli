@@ -8,6 +8,7 @@
 
 # Workflow files
 .github/ @utkarsh232005
+.github/workflows/changelog.yml @Yuvraj-Sarathe
 
 # Core source
 src/ @utkarsh232005
