@@ -7,11 +7,17 @@ on:
     tags:
       - 'v*.*.*'
 
-jobs:
+ jobs:
   generate-changelog:
+    runs-on: ubuntu-latest  # Ensure this is here and aligned
+
+    concurrency:
+      group: auto-changelog-${{ github.ref_name }}
+      cancel-in-progress: false
+
     permissions:
       contents: write
-    runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -21,7 +27,7 @@ jobs:
 
       - name: Build Changelog/Release Notes
         id: github_release
-        uses: mikepenz/release-changelog-builder-action@v4
+        uses: mikepenz/release-changelog-builder-action@<full_commit_sha> # v4
         with:
           configuration: |
             {
@@ -58,7 +64,6 @@ jobs:
                   printf "\n---\n**Version:** %s\n" "'"$VERSION"'" >> "$file"
                 fi
               done
-            ' _ {} +
             ' _ {} +
           else
             # Fallback structure if the template directory isn't initialized yet
