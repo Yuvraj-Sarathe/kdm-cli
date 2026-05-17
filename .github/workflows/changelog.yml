@@ -50,9 +50,7 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          
-          # Stage the entire docs directory to track the new file addition
           git add docs/
-          
           git commit -m "chore: add version doc changelog for ${{ github.ref_name }} [skip ci]"
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          # TEMPORARILY CHANGE THIS TO TARGET YOUR FEATURE BRANCH:
+          git push origin HEAD:feat/changelog-auto-workflow
