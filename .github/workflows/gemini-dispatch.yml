@@ -10,10 +10,6 @@ on:
   pull_request:
     types:
       - 'opened'
-  issues:
-    types:
-      - 'opened'
-      - 'reopened'
   issue_comment:
     types:
       - 'created'
@@ -95,8 +91,6 @@ jobs:
 
             if (eventType === 'pull_request.opened') {
               core.setOutput('command', 'review');
-            } else if (['issues.opened', 'issues.reopened'].includes(eventType)) {
-              core.setOutput('command', 'triage');
             } else if (request.startsWith("@gemini-cli /review")) {
               core.setOutput('command', 'review');
               const additionalContext = request.replace(/^@gemini-cli \/review/, '').trim();
