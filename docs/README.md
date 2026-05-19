@@ -36,5 +36,5 @@ kdm config setup
 
 ## Version History
 
-* [v1.2.1](https://www.google.com/search?q=v1.2.1.md)
-* [v1.1.0](https://www.google.com/search?q=v1.1.0.md)
+* [v1.2.1](v1.2.1.md)
+* [v1.1.0](v1.1.0.md)
