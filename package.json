@@ -47,13 +47,13 @@
     "dockerode": "^4.0.0",
     "ink": "^4.4.1",
     "nodemailer": "^8.0.7",
-    "react": "^18.2.0"
+    "react": "^19.2.6"
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.26",
     "@types/node": "^20.11.24",
     "@types/nodemailer": "^8.0.0",
-    "@types/react": "^18.3.28",
+    "@types/react": "^19.2.15",
     "tsup": "^8.0.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.6"
