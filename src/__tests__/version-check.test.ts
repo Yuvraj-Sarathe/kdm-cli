@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { compareSemver, getUpdateType, checkForUpdates } from '../utils/version-check';
+import { compareSemver, getUpdateType, checkForUpdates, getInstalledVersion } from '../utils/version-check';
 import { logger } from '../utils/logger';
+import { readFileSync } from 'node:fs';
+
+vi.mock('node:fs', () => ({
+  readFileSync: vi.fn(() => JSON.stringify({ version: '1.2.2' })),
+}));
 
 vi.mock('../utils/logger', () => ({
   logger: {
@@ -96,6 +101,70 @@ describe('version-check utilities', () => {
 
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('update available!'));
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('v9.9.9'));
+    });
+  });
+
+  describe('getInstalledVersion', () => {
+    afterEach(() => {
+      vi.mocked(readFileSync).mockReset();
+    });
+
+    it('should resolve and return the version if package.json in production path is valid', () => {
+      vi.mocked(readFileSync).mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('src/package.json')) {
+          return JSON.stringify({ version: '2.3.4' });
+        }
+        throw new Error('File not found');
+      });
+
+      expect(getInstalledVersion()).toBe('2.3.4');
+    });
+
+    it('should resolve and return the version if production path fails but development path succeeds', () => {
+      vi.mocked(readFileSync).mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('package.json') && !path.endsWith('src/package.json')) {
+          return JSON.stringify({ version: '1.2.3' });
+        }
+        throw new Error('File not found');
+      });
+
+      expect(getInstalledVersion()).toBe('1.2.3');
+    });
+
+    it('should advance to the next path if JSON is malformed', () => {
+      vi.mocked(readFileSync).mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('src/package.json')) {
+          return '{ malformed json';
+        }
+        if (typeof path === 'string' && path.endsWith('package.json') && !path.endsWith('src/package.json')) {
+          return JSON.stringify({ version: '1.2.9' });
+        }
+        throw new Error('File not found');
+      });
+
+      expect(getInstalledVersion()).toBe('1.2.9');
+    });
+
+    it('should advance to next path if version is not a string or missing', () => {
+      vi.mocked(readFileSync).mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('src/package.json')) {
+          return JSON.stringify({ version: 12345 }); // non-string version
+        }
+        if (typeof path === 'string' && path.endsWith('package.json') && !path.endsWith('src/package.json')) {
+          return JSON.stringify({ version: '1.2.8' });
+        }
+        throw new Error('File not found');
+      });
+
+      expect(getInstalledVersion()).toBe('1.2.8');
+    });
+
+    it('should fallback to 0.0.0 if both paths fail', () => {
+      vi.mocked(readFileSync).mockImplementation(() => {
+        throw new Error('Read failed');
+      });
+
+      expect(getInstalledVersion()).toBe('0.0.0');
     });
   });
 });

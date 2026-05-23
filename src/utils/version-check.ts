@@ -8,14 +8,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Read the actual package.json version at runtime
-function getInstalledVersion(): string {
-  const pkgPath = join(__dirname, '..', '..', 'package.json');
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    return pkg.version || '0.0.0';
-  } catch {
-    return '0.0.0';
+export function getInstalledVersion(): string {
+  const paths = [
+    join(__dirname, '..', 'package.json'),      // production: dist/../package.json
+    join(__dirname, '..', '..', 'package.json') // development: src/utils/../../package.json
+  ];
+  for (const pkgPath of paths) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      if (typeof pkg.version === 'string' && pkg.version) return pkg.version;
+    } catch {
+      // Try next path
+    }
   }
+  return '0.0.0';
 }
 
 // Compare two semver strings; returns 'lt' if a < b, 'gt' if a > b, 'eq' if equal
