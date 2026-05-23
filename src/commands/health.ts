@@ -32,6 +32,11 @@ import { logger } from '../utils/logger';
 import { createSpinner } from '../ui/spinner';
 import { renderTable } from '../ui/table';
 
+export interface HealthOptions {
+  watch?: boolean;
+  interval?: string;
+}
+
 const healthColor = (status: string): string => {
   if (status === 'healthy' || status === 'running' || status === 'Running') {
     return chalk.green(status);
@@ -42,19 +47,7 @@ const healthColor = (status: string): string => {
   return chalk.yellow(status);
 };
 
-export const showHealth = async (target: string): Promise<void> => {
-  logger.info?.(`Showing health for ${target}...`);
-
-  const validTargets = ['all', 'containers', 'pods'];
-  if (!validTargets.includes(target)) {
-    logger.error?.(
-      `Unknown target: ${target}. Valid targets are: ${validTargets.join(', ')}.`,
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const spinner = createSpinner(`Checking ${target} health...`).start();
+const fetchHealthRows = async (target: string): Promise<(string | number)[][]> => {
   const rows: (string | number)[][] = [];
 
   if (target === 'all' || target === 'containers') {
@@ -91,17 +84,93 @@ export const showHealth = async (target: string): Promise<void> => {
     }
   }
 
-  spinner.stop();
+  return rows;
+};
 
-  if (rows.length === 0) {
-    logger.warn?.(`No ${target === 'all' ? 'workloads' : target} found.`);
+export const showHealth = async (target: string, options: HealthOptions = {}): Promise<void> => {
+  logger.info?.(`Showing health for ${target}...`);
+
+  const validTargets = ['all', 'containers', 'pods'];
+  if (!validTargets.includes(target)) {
+    logger.error?.(
+      `Unknown target: ${target}. Valid targets are: ${validTargets.join(', ')}.`,
+    );
+    process.exitCode = 1;
     return;
   }
 
-  renderTable({
-    head: ['TYPE', 'NAME', 'HEALTH', 'DETAILS'],
-    rows,
-  });
+  if (options.watch) {
+    const intervalSeconds = parseInt(options.interval || '5', 10);
+    if (isNaN(intervalSeconds) || intervalSeconds <= 0) {
+      logger.error?.('Invalid interval. Please provide a positive number of seconds.');
+      process.exitCode = 1;
+      return;
+    }
+
+    let isRunning = true;
+    let timer: NodeJS.Timeout | undefined;
+
+    const cleanup = () => {
+      isRunning = false;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+
+    const sigintHandler = () => {
+      cleanup();
+      process.exit(0);
+    };
+
+    if (process.env.NODE_ENV !== 'test') {
+      process.on('SIGINT', sigintHandler);
+      process.on('SIGTERM', sigintHandler);
+    }
+
+    const poll = async () => {
+      if (!isRunning) return;
+
+      const rows = await fetchHealthRows(target);
+      
+      // Clear terminal screen
+      process.stdout.write('\x1Bc');
+
+      const timestamp = new Date().toLocaleTimeString();
+      console.log(
+        chalk.bold.cyan(`[KDM Health] Target: ${target} | Last updated: ${timestamp} (Interval: ${intervalSeconds}s)`)
+      );
+      console.log(chalk.dim('Press Ctrl+C to exit\n'));
+
+      if (rows.length === 0) {
+        logger.warn?.(`No ${target === 'all' ? 'workloads' : target} found.`);
+      } else {
+        renderTable({
+          head: ['TYPE', 'NAME', 'HEALTH', 'DETAILS'],
+          rows,
+        });
+      }
+
+      if (isRunning) {
+        timer = setTimeout(poll, intervalSeconds * 1000);
+      }
+    };
+
+    await poll();
+  } else {
+    const spinner = createSpinner(`Checking ${target} health...`).start();
+    const rows = await fetchHealthRows(target);
+    spinner.stop();
+
+    if (rows.length === 0) {
+      logger.warn?.(`No ${target === 'all' ? 'workloads' : target} found.`);
+      return;
+    }
+
+    renderTable({
+      head: ['TYPE', 'NAME', 'HEALTH', 'DETAILS'],
+      rows,
+    });
+  }
 };
 
 export const registerHealthCommand = (program: Command): void => {
@@ -111,5 +180,9 @@ export const registerHealthCommand = (program: Command): void => {
       'Show health status for pods, containers, or all workloads.\n' +
       'Valid targets: all | containers | pods',
     )
-    .action(showHealth);
+    .option('-w, --watch', 'Watch mode: continuously refresh health output')
+    .option('-i, --interval <number>', 'Refresh interval in seconds', '5')
+    .action(async (target, options) => {
+      await showHealth(target, options);
+    });
 };

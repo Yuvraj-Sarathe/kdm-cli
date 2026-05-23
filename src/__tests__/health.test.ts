@@ -192,4 +192,56 @@ describe('health command', () => {
       }),
     );
   });
+
+  it('should register watch and interval options', () => {
+    const healthCmd = program.commands.find((c) => c.name() === 'health');
+    const watchOption = healthCmd?.options.find((o) => o.short === '-w');
+    const intervalOption = healthCmd?.options.find((o) => o.short === '-i');
+    expect(watchOption).toBeDefined();
+    expect(intervalOption).toBeDefined();
+  });
+
+  it('should log error on invalid interval', async () => {
+    await program.parseAsync(['node', 'test', 'health', 'all', '--watch', '--interval', '-1']);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid interval'),
+    );
+  });
+
+  it('should poll health status periodically in watch mode', async () => {
+    vi.useFakeTimers();
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    vi.mocked(getRunningContainers).mockResolvedValue([
+      { id: '1', name: 'web', image: 'nginx', state: 'running', status: 'Up 2 hours' },
+    ]);
+    vi.mocked(getRunningPods).mockResolvedValue([]);
+
+    // Parse to run the watch mode command
+    await program.parseAsync(['node', 'test', 'health', 'all', '--watch', '--interval', '3']);
+    
+    expect(tableUtils.renderTable).toHaveBeenCalledTimes(1);
+    expect(writeSpy).toHaveBeenCalledWith('\x1Bc');
+
+    // Change mock status to verify the next iteration
+    vi.mocked(getRunningContainers).mockResolvedValue([
+      { id: '1', name: 'web', image: 'nginx', state: 'exited', status: 'Exited' },
+    ]);
+
+    // Advance timer by 3 seconds (3000ms)
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(tableUtils.renderTable).toHaveBeenCalledTimes(2);
+    expect(tableUtils.renderTable).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        rows: expect.arrayContaining([
+          expect.arrayContaining(['container', 'web', expect.stringContaining('exited')]),
+        ]),
+      }),
+    );
+
+    // Clean up
+    writeSpy.mockRestore();
+    vi.useRealTimers();
+  });
 });
