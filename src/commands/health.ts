@@ -136,10 +136,10 @@ export const showHealth = async (target: string, options: HealthOptions = {}): P
       process.stdout.write('\x1Bc');
 
       const timestamp = new Date().toLocaleTimeString();
-      console.log(
+      logger.info?.(
         chalk.bold.cyan(`[KDM Health] Target: ${target} | Last updated: ${timestamp} (Interval: ${intervalSeconds}s)`)
       );
-      console.log(chalk.dim('Press Ctrl+C to exit\n'));
+      logger.info?.(chalk.dim('Press Ctrl+C to exit\n'));
 
       if (rows.length === 0) {
         logger.warn?.(`No ${target === 'all' ? 'workloads' : target} found.`);
