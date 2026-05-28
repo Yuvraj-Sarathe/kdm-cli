@@ -1,84 +1,99 @@
 import { AnalysisOutput } from './types';
+import { AnalyzerResult, Failure } from '../analyzers/types';
 import chalk from 'chalk';
 
-export function formatTextOutput(output: AnalysisOutput): string {
-  const lines: string[] = [];
+function redactSensitive(value: string, sensitive?: { unmasked: string; masked: string }[]): string {
+  if (!sensitive?.length) return value;
+  return sensitive.reduce(
+    (acc, pair) => (pair.unmasked ? acc.split(pair.unmasked).join(pair.masked) : acc),
+    value
+  );
+}
 
-  const redact = (value: string, sensitive?: { unmasked: string; masked: string }[]): string => {
-    if (!sensitive?.length) return value;
-    return sensitive.reduce(
-      (acc, pair) => (pair.unmasked ? acc.split(pair.unmasked).join(pair.masked) : acc),
-      value
-    );
-  };
-
-  // Summary line
+function formatSummary(output: AnalysisOutput): string {
   if (output.status === 'OK') {
-    lines.push(chalk.green('No problems detected'));
-  } else {
+    return chalk.green('No problems detected');
+  }
+  return chalk.yellow(
+    `Status: ProblemDetected (${output.problems} ${output.problems === 1 ? 'problem' : 'problems'})`
+  );
+}
+
+function formatWarnings(errors: string[]): string[] {
+  return [
+    '',
+    chalk.yellow('Warnings / Errors:'),
+    ...errors.map((err) => `- ${chalk.yellow(err)}`),
+  ];
+}
+
+function formatFailure(failure: Failure): string[] {
+  const lines: string[] = [];
+  lines.push(`  - ${chalk.red('Error:')} ${chalk.red(redactSensitive(failure.text, failure.sensitive))}`);
+  if (failure.kubernetesDoc) {
     lines.push(
-      chalk.yellow(
-        `Status: ProblemDetected (${output.problems} ${output.problems === 1 ? 'problem' : 'problems'})`
-      )
+      `    ${chalk.red('Kubernetes Doc:')} ${chalk.red(redactSensitive(failure.kubernetesDoc, failure.sensitive))}`
     );
   }
+  return lines;
+}
 
-  // Include provider if explain was used
+function formatResult(res: AnalyzerResult): string[] {
+  const parentPart = res.parentObject ? `(${res.parentObject})` : '';
+  const nsPart = res.namespace ? ` [${res.namespace}]` : '';
+  const lines: string[] = [
+    `- Name: ${chalk.yellow(res.name)}${nsPart} ${chalk.cyan(parentPart)}`.trim(),
+    ...res.errors.flatMap(formatFailure),
+  ];
+  if (res.details) {
+    lines.push(chalk.green(res.details));
+  }
+  return lines;
+}
+
+function formatResultGroups(results: AnalyzerResult[]): string[] {
+  const grouped = new Map<string, AnalyzerResult[]>();
+  for (const res of results) {
+    const list = grouped.get(res.kind) || [];
+    list.push(res);
+    grouped.set(res.kind, list);
+  }
+
+  const lines: string[] = [''];
+  for (const [kind, group] of grouped.entries()) {
+    lines.push(`${chalk.cyan(kind)}s:`);
+    lines.push(...group.flatMap(formatResult));
+  }
+  return lines;
+}
+
+function formatStats(stats: NonNullable<AnalysisOutput['stats']>): string[] {
+  return [
+    '',
+    chalk.yellow(
+      'The stats mode allows for debugging and understanding the time taken by an analysis by displaying the statistics of each analyzer.'
+    ),
+    ...stats.map((stat) => `- Analyzer ${chalk.yellow(stat.analyzer)} took ${stat.durationMs}ms`),
+  ];
+}
+
+export function formatTextOutput(output: AnalysisOutput): string {
+  const lines: string[] = [formatSummary(output)];
+
   if (output.provider) {
     lines.push(`AI Provider: ${chalk.yellow(output.provider)}`);
   }
 
-  // Warnings / Errors
-  if (output.errors && output.errors.length > 0) {
-    lines.push('');
-    lines.push(chalk.yellow('Warnings / Errors:'));
-    for (const err of output.errors) {
-      lines.push(`- ${chalk.yellow(err)}`);
-    }
+  if (output.errors?.length) {
+    lines.push(...formatWarnings(output.errors));
   }
 
-  if (output.results && output.results.length > 0) {
-    lines.push('');
-    // Group results by kind
-    const grouped = new Map<string, typeof output.results>();
-    for (const res of output.results) {
-      const list = grouped.get(res.kind) || [];
-      list.push(res);
-      grouped.set(res.kind, list);
-    }
-
-    for (const [kind, results] of grouped.entries()) {
-      lines.push(`${chalk.cyan(kind)}s:`);
-      for (const res of results) {
-        const parentPart = res.parentObject ? `(${res.parentObject})` : '';
-        const nsPart = res.namespace ? ` [${res.namespace}]` : '';
-        lines.push(`- Name: ${chalk.yellow(res.name)}${nsPart} ${chalk.cyan(parentPart)}`.trim());
-        for (const failure of res.errors) {
-          lines.push(`  - ${chalk.red('Error:')} ${chalk.red(redact(failure.text, failure.sensitive))}`);
-          if (failure.kubernetesDoc) {
-            lines.push(
-              `    ${chalk.red('Kubernetes Doc:')} ${chalk.red(redact(failure.kubernetesDoc, failure.sensitive))}`
-            );
-          }
-        }
-        if (res.details) {
-          lines.push(chalk.green(res.details));
-        }
-      }
-    }
+  if (output.results?.length) {
+    lines.push(...formatResultGroups(output.results));
   }
 
-  // Format stats if present
-  if (output.stats && output.stats.length > 0) {
-    lines.push('');
-    lines.push(
-      chalk.yellow(
-        'The stats mode allows for debugging and understanding the time taken by an analysis by displaying the statistics of each analyzer.'
-      )
-    );
-    for (const stat of output.stats) {
-      lines.push(`- Analyzer ${chalk.yellow(stat.analyzer)} took ${stat.durationMs}ms`);
-    }
+  if (output.stats?.length) {
+    lines.push(...formatStats(output.stats));
   }
 
   return lines.join('\n');
