@@ -30,14 +30,10 @@ function resolveAnalyzers(filters: string[], errors: string[]): Analyzer[] {
 }
 
 function resolveConcurrencyLimit(maxConcurrency: number | undefined): number {
-  if (
-    typeof maxConcurrency === 'number' &&
-    maxConcurrency > 0 &&
-    Number.isInteger(maxConcurrency)
-  ) {
-    return Math.min(maxConcurrency, MAX_ALLOWED_CONCURRENCY);
-  }
-  return DEFAULT_CONCURRENCY;
+  if (maxConcurrency === undefined) return DEFAULT_CONCURRENCY;
+  if (typeof maxConcurrency !== 'number') return DEFAULT_CONCURRENCY;
+  if (!Number.isInteger(maxConcurrency) || maxConcurrency <= 0) return DEFAULT_CONCURRENCY;
+  return Math.min(maxConcurrency, MAX_ALLOWED_CONCURRENCY);
 }
 
 function tryAttachProvider(output: AnalysisOutput): void {
