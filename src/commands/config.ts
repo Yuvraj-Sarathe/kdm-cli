@@ -72,19 +72,14 @@ const handleEmailSetup = async () => {
     message: 'Alert Recipient Email:',
     validate: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || 'Must be a valid email address',
   });
-  const password = await input({
-    message: 'SMTP Password (optional, press Enter to skip):',
-    validate: () => true,
-  });
-
   clearNotificationCredentials();
   setConfig('email_host', host);
   setConfig('email_port', parseInt(portStr, 10));
   setConfig('email_user', user);
   setConfig('email_to', to);
-  if (password) {
-    setConfig('email_password', password);
-  }
+  setConfig('notification_service', 'email');
+  console.log(chalk.dim('  Set the SMTP password via the KDM_SMTP_PASSWORD environment variable.'));
+  console.log(chalk.green('\n✓ Email SMTP configured.'));
   setConfig('notification_service', 'email');
   console.log(chalk.green('\n✓ Email SMTP configured.'));
 };
