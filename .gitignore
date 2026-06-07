@@ -3,6 +3,7 @@ dist/
 *.log
 .env
 .npmrc
+.DS_Store
 BLUEPRINT.md
 implemented.md
 coverage/
