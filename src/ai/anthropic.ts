@@ -20,22 +20,19 @@ const formatAnthropicUrl = (baseUrl?: string): string => {
 
 /**
  * Builds the Anthropic payload body.
- * @param model Model name.
- * @param prompt Prompt text.
- * @param temp Temperature.
- * @param maxTokens MaxTokens.
+ * @param params Option parameters for the Anthropic payload.
  * @returns Payload body object.
  */
-const buildAnthropicBody = (
-  model: string,
-  prompt: string,
-  temp?: number,
-  maxTokens?: number,
-) => ({
-  model,
-  messages: [{ role: 'user', content: prompt }],
-  max_tokens: maxTokens ?? 2048,
-  temperature: temp ?? 0.7,
+const buildAnthropicBody = (params: {
+  model: string;
+  prompt: string;
+  temp?: number;
+  maxTokens?: number;
+}) => ({
+  model: params.model,
+  messages: [{ role: 'user', content: params.prompt }],
+  max_tokens: params.maxTokens ?? 2048,
+  temperature: params.temp ?? 0.7,
 });
 
 /**
@@ -67,12 +64,12 @@ export class AnthropicAIClient implements AIClient {
    */
   async getCompletion(prompt: string): Promise<string> {
     const url = formatAnthropicUrl(this.config.baseUrl);
-    const body = buildAnthropicBody(
-      this.config.model,
+    const body = buildAnthropicBody({
+      model: this.config.model,
       prompt,
-      this.config.temperature,
-      this.config.maxTokens,
-    );
+      temp: this.config.temperature,
+      maxTokens: this.config.maxTokens,
+    });
 
     const res = await fetch(url, {
       method: 'POST',

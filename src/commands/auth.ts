@@ -140,11 +140,11 @@ const updateHeaders = (provider: AIProviderConfig, options: any): void => {
 };
 
 /**
- * Updates option numeric configuration parameters.
- * @param provider Config to update.
- * @param options CLI flags.
+ * Parses numeric option fields and populates them on the provider configuration.
+ * @param provider Configuration object.
+ * @param options User specified CLI options.
  */
-const updateNumericFields = (provider: AIProviderConfig, options: any): void => {
+const parseNumericFields = (provider: AIProviderConfig, options: any): void => {
   if (options.temperature !== undefined) {
     provider.temperature = Number.parseFloat(options.temperature);
   }
@@ -168,8 +168,57 @@ const assignProviderUpdateOptions = (provider: AIProviderConfig, options: any): 
   if (options.model) provider.model = options.model;
   if (options.password !== undefined) provider.password = options.password;
   if (options.baseurl !== undefined) provider.baseUrl = options.baseurl;
-  updateNumericFields(provider, options);
+  parseNumericFields(provider, options);
   updateHeaders(provider, options);
+};
+
+/**
+ * Parses options header configurations if set.
+ * @param customHeader Header flags array.
+ * @returns Header record or undefined.
+ */
+const parseHeadersOption = (customHeader?: string[]): Record<string, string> | undefined => {
+  if (customHeader && customHeader.length > 0) {
+    return parseCustomHeaders(customHeader);
+  }
+  return undefined;
+};
+
+/**
+ * Resolves the configuration model.
+ * @param backend Normalized backend name.
+ * @param modelOption User specified model name option.
+ * @returns Resolved model string.
+ */
+const resolveModel = (backend: string, modelOption?: string): string => {
+  return modelOption || DEFAULT_MODELS[backend] || 'default';
+};
+
+
+
+/**
+ * Builds the complete AIProviderConfig from inputs.
+ * @param params Object containing normalized name and options object.
+ * @returns Constructed AIProviderConfig.
+ */
+const buildProviderConfig = (params: {
+  backend: string;
+  options: any;
+}): AIProviderConfig => {
+  const { backend, options } = params;
+  const provider: AIProviderConfig = {
+    name: backend,
+    model: resolveModel(backend, options.model),
+    password: options.password,
+    baseUrl: options.baseurl,
+    temperature: 0.7,
+    topP: 1,
+    topK: 50,
+    maxTokens: 2048,
+    customHeaders: parseHeadersOption(options.customHeader),
+  };
+  parseNumericFields(provider, options);
+  return provider;
 };
 
 /**
@@ -202,23 +251,7 @@ const handleAuthAdd = (options: any): void => {
   const aiConfig = getAIConfig();
   if (!ensureProviderNotExists({ name: backend, providers: aiConfig.providers })) return;
 
-  const customHeaders = options.customHeader?.length
-    ? parseCustomHeaders(options.customHeader)
-    : undefined;
-
-  const provider: AIProviderConfig = {
-    name: backend,
-    model: options.model || DEFAULT_MODELS[backend] || 'default',
-    password: options.password,
-    baseUrl: options.baseurl,
-    temperature: options.temperature ? Number.parseFloat(options.temperature) : 0.7,
-    topP: options.topp ? Number.parseFloat(options.topp) : 1,
-    topK: options.topk ? Number.parseInt(options.topk, 10) : 50,
-    maxTokens: options.maxtokens ? Number.parseInt(options.maxtokens, 10) : 2048,
-    customHeaders,
-  };
-
-  aiConfig.providers.push(provider);
+  aiConfig.providers.push(buildProviderConfig({ backend, options }));
   aiConfig.defaultProvider = aiConfig.defaultProvider || backend;
 
   setAIConfig(aiConfig);

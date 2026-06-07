@@ -20,25 +20,21 @@ const formatOpenAIUrl = (baseUrl?: string): string => {
 
 /**
  * Builds the OpenAI payload body.
- * @param model Model name.
- * @param prompt Prompt text.
- * @param temp Temperature.
- * @param topP TopP.
- * @param maxTokens MaxTokens.
+ * @param params Option parameters for the OpenAI payload.
  * @returns Payload body object.
  */
-const buildOpenAIBody = (
-  model: string,
-  prompt: string,
-  temp?: number,
-  topP?: number,
-  maxTokens?: number,
-) => ({
-  model,
-  messages: [{ role: 'user', content: prompt }],
-  temperature: temp ?? 0.7,
-  top_p: topP ?? 1,
-  max_tokens: maxTokens ?? 2048,
+const buildOpenAIBody = (params: {
+  model: string;
+  prompt: string;
+  temp?: number;
+  topP?: number;
+  maxTokens?: number;
+}) => ({
+  model: params.model,
+  messages: [{ role: 'user', content: params.prompt }],
+  temperature: params.temp ?? 0.7,
+  top_p: params.topP ?? 1,
+  max_tokens: params.maxTokens ?? 2048,
 });
 
 /**
@@ -70,13 +66,13 @@ export class OpenAIAIClient implements AIClient {
    */
   async getCompletion(prompt: string): Promise<string> {
     const url = formatOpenAIUrl(this.config.baseUrl);
-    const body = buildOpenAIBody(
-      this.config.model,
+    const body = buildOpenAIBody({
+      model: this.config.model,
       prompt,
-      this.config.temperature,
-      this.config.topP,
-      this.config.maxTokens,
-    );
+      temp: this.config.temperature,
+      topP: this.config.topP,
+      maxTokens: this.config.maxTokens,
+    });
 
     const res = await fetch(url, {
       method: 'POST',

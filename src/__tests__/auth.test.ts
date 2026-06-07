@@ -47,30 +47,30 @@ describe('auth command & AI clients', () => {
     process.exitCode = undefined;
   });
 
-  const runAIClientTest = async (
-    backend: string,
-    addArgs: string[],
-    mockJson: any,
-    expectedUrl: string,
-    bodyExpectations: (body: any) => void,
-    headersExpectations: (headers: any) => void,
-  ) => {
+  const runAIClientTest = async (params: {
+    backend: string;
+    addArgs: string[];
+    mockJson: any;
+    expectedUrl: string;
+    bodyExpectations: (body: any) => void;
+    headersExpectations: (headers: any) => void;
+  }) => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => mockJson,
+      json: async () => params.mockJson,
     } as Response);
 
-    await program.parseAsync(['node', 'test', 'auth', 'add', '-b', backend, ...addArgs]);
-    const client = await createAIClient(backend);
+    await program.parseAsync(['node', 'test', 'auth', 'add', '-b', params.backend, ...params.addArgs]);
+    const client = await createAIClient(params.backend);
     await client.getCompletion('test-prompt');
 
     expect(fetchSpy).toHaveBeenCalled();
     const [calledUrl, calledOptions] = fetchSpy.mock.calls[0];
-    expect(calledUrl).toBe(expectedUrl);
+    expect(calledUrl).toBe(params.expectedUrl);
     expect(calledOptions.method).toBe('POST');
-    bodyExpectations(JSON.parse(calledOptions.body));
-    headersExpectations(calledOptions.headers);
+    params.bodyExpectations(JSON.parse(calledOptions.body));
+    params.headersExpectations(calledOptions.headers);
   };
 
   it('adds a provider with defaults', async () => {
@@ -277,14 +277,14 @@ describe('auth command & AI clients', () => {
   ])(
     'queries $backend provider client completion with url options: $addArgs',
     async ({ backend, addArgs, mockJson, expectedUrl, bodyExpectations, headersExpectations }) => {
-      await runAIClientTest(
+      await runAIClientTest({
         backend,
         addArgs,
         mockJson,
         expectedUrl,
         bodyExpectations,
         headersExpectations,
-      );
+      });
     },
   );
 
