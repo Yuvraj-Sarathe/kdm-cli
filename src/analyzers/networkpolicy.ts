@@ -42,6 +42,11 @@ const checkNetworkPolicyRules = (np: k8s.V1NetworkPolicy): Failure[] => {
  */
 export const NetworkPolicyAnalyzer: Analyzer = {
   name: 'NetworkPolicy',
+  /**
+   * Performs analysis on NetworkPolicy resources to verify selectors and ingress/egress rules.
+   * @param context Analyzer context options.
+   * @returns Array of analyzer results highlighting any misconfigurations.
+   */
   async analyze(context: AnalyzerContext): Promise<AnalyzerResult[]> {
     const resources = await listNetworkPolicies(context);
     return resources.flatMap((np) => {

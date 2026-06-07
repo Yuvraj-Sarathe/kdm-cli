@@ -37,6 +37,9 @@ export class GoogleVertexAIClient implements AIClient {
         generationConfig: { temperature: this.temperature },
       }),
     });
+    if (!response.ok) {
+      throw new Error(`Google Vertex API call failed with status ${response.status}: ${response.statusText}`);
+    }
     const data = await response.json() as any;
     return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   }

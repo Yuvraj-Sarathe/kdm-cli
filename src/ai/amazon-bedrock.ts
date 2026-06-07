@@ -37,6 +37,9 @@ export class AmazonBedrockAIClient implements AIClient {
         textGenerationConfig: { temperature: this.temperature },
       }),
     });
+    if (!response.ok) {
+      throw new Error(`Amazon Bedrock API call failed with status ${response.status}: ${response.statusText}`);
+    }
     const data = await response.json() as any;
     return data.results?.[0]?.outputText ?? data.completion ?? '';
   }

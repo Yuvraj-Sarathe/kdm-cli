@@ -3,12 +3,36 @@ import chalk from 'chalk';
 import { getAIConfig, setAIConfig } from '../config/store';
 import { type AIProviderConfig } from '../config/schema';
 
-const VALID_BACKENDS = new Set(['openai', 'ollama', 'anthropic', 'noop', 'customrest']);
+const VALID_BACKENDS = new Set([
+  'openai',
+  'ollama',
+  'anthropic',
+  'noop',
+  'customrest',
+  'azure-openai',
+  'cohere',
+  'google-gemini',
+  'google-vertex',
+  'amazon-bedrock',
+  'huggingface',
+  'groq',
+  'ibm-watsonx',
+  'oci-genai',
+]);
 
 const DEFAULT_MODELS: Record<string, string> = {
   openai: 'gpt-4o',
   anthropic: 'claude-3-5-sonnet-latest',
   ollama: 'llama3.1',
+  'azure-openai': 'gpt-4',
+  cohere: 'command-r-plus',
+  'google-gemini': 'gemini-pro',
+  'google-vertex': 'gemini-pro',
+  'amazon-bedrock': 'anthropic.claude-v2',
+  huggingface: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
+  groq: 'llama3-70b-8192',
+  'ibm-watsonx': 'ibm/granite-13b-instruct-v2',
+  'oci-genai': 'cohere.command-r-plus',
 };
 
 interface ProviderContext {

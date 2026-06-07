@@ -59,31 +59,77 @@ const checkKEDAScaledObject = (resource: any): Failure[] => {
   return failures;
 };
 
+interface CustomObjectParams {
+  group: string;
+  version: string;
+  plural: string;
+  kind: string;
+  context: AnalyzerContext;
+  checkFn: (resource: any) => Failure[];
+  hasNamespace?: boolean;
+}
+
+/**
+ * Helper to fetch and analyze custom objects.
+ * @param params Configuration parameters.
+ * @returns Array of analyzer results.
+ */
+async function analyzeCustomObjects(params: CustomObjectParams): Promise<AnalyzerResult[]> {
+  try {
+    const api = getCustomObjectsApi(params.context);
+    const response = params.context.namespace && params.hasNamespace !== false
+      ? await api.listNamespacedCustomObject({
+          group: params.group,
+          version: params.version,
+          namespace: params.context.namespace,
+          plural: params.plural,
+        })
+      : await api.listClusterCustomObject({
+          group: params.group,
+          version: params.version,
+          plural: params.plural,
+        });
+
+    const items = (response as any)?.items ?? [];
+    return items.flatMap((resource: any) => {
+      const errors = params.checkFn(resource);
+      if (!errors.length) return [];
+      const result: AnalyzerResult = {
+        kind: params.kind,
+        name: resource.metadata?.name ?? 'unknown',
+        errors,
+      };
+      if (resource.metadata?.namespace) {
+        result.namespace = resource.metadata.namespace;
+      } else if (params.context.namespace && params.hasNamespace !== false) {
+        result.namespace = params.context.namespace;
+      }
+      return [result];
+    });
+  } catch {
+    return [];
+  }
+}
+
 /**
  * KEDA integration analyzer checking ScaledObject health.
  */
 export const KEDAAnalyzer: Analyzer = {
   name: 'KEDA',
+  /**
+   * Performs analysis on KEDA ScaledObject resources.
+   * @param context Analyzer context options.
+   * @returns Array of analyzer results.
+   */
   async analyze(context: AnalyzerContext): Promise<AnalyzerResult[]> {
-    try {
-      const api = getCustomObjectsApi(context);
-      const response = context.namespace
-        ? await api.listNamespacedCustomObject({ group: 'keda.sh', version: 'v1alpha1', namespace: context.namespace, plural: 'scaledobjects' })
-        : await api.listClusterCustomObject({ group: 'keda.sh', version: 'v1alpha1', plural: 'scaledobjects' });
-      const items = (response as any)?.items ?? [];
-      return items.flatMap((resource: any) => {
-        const errors = checkKEDAScaledObject(resource);
-        if (!errors.length) return [];
-        return [{
-          kind: 'KEDA',
-          name: resource.metadata?.name ?? 'unknown',
-          namespace: resource.metadata?.namespace ?? 'default',
-          errors,
-        }];
-      });
-    } catch {
-      return [];
-    }
+    return analyzeCustomObjects({
+      group: 'keda.sh',
+      version: 'v1alpha1',
+      plural: 'scaledobjects',
+      kind: 'KEDA',
+      context,
+      checkFn: checkKEDAScaledObject,
+    });
   },
 };
 
@@ -110,23 +156,21 @@ const checkKyvernoPolicy = (resource: any): Failure[] => {
  */
 export const KyvernoAnalyzer: Analyzer = {
   name: 'Kyverno',
+  /**
+   * Performs analysis on Kyverno ClusterPolicy resources.
+   * @param context Analyzer context options.
+   * @returns Array of analyzer results.
+   */
   async analyze(context: AnalyzerContext): Promise<AnalyzerResult[]> {
-    try {
-      const api = getCustomObjectsApi(context);
-      const response = await api.listClusterCustomObject({ group: 'kyverno.io', version: 'v1', plural: 'clusterpolicies' });
-      const items = (response as any)?.items ?? [];
-      return items.flatMap((resource: any) => {
-        const errors = checkKyvernoPolicy(resource);
-        if (!errors.length) return [];
-        return [{
-          kind: 'Kyverno',
-          name: resource.metadata?.name ?? 'unknown',
-          errors,
-        }];
-      });
-    } catch {
-      return [];
-    }
+    return analyzeCustomObjects({
+      group: 'kyverno.io',
+      version: 'v1',
+      plural: 'clusterpolicies',
+      kind: 'Kyverno',
+      context,
+      checkFn: checkKyvernoPolicy,
+      hasNamespace: false,
+    });
   },
 };
 
@@ -147,26 +191,20 @@ const checkPrometheusServiceMonitor = (resource: any): Failure[] => {
  */
 export const PrometheusAnalyzer: Analyzer = {
   name: 'Prometheus',
+  /**
+   * Performs analysis on Prometheus ServiceMonitor resources.
+   * @param context Analyzer context options.
+   * @returns Array of analyzer results.
+   */
   async analyze(context: AnalyzerContext): Promise<AnalyzerResult[]> {
-    try {
-      const api = getCustomObjectsApi(context);
-      const response = context.namespace
-        ? await api.listNamespacedCustomObject({ group: 'monitoring.coreos.com', version: 'v1', namespace: context.namespace, plural: 'servicemonitors' })
-        : await api.listClusterCustomObject({ group: 'monitoring.coreos.com', version: 'v1', plural: 'servicemonitors' });
-      const items = (response as any)?.items ?? [];
-      return items.flatMap((resource: any) => {
-        const errors = checkPrometheusServiceMonitor(resource);
-        if (!errors.length) return [];
-        return [{
-          kind: 'Prometheus',
-          name: resource.metadata?.name ?? 'unknown',
-          namespace: resource.metadata?.namespace ?? 'default',
-          errors,
-        }];
-      });
-    } catch {
-      return [];
-    }
+    return analyzeCustomObjects({
+      group: 'monitoring.coreos.com',
+      version: 'v1',
+      plural: 'servicemonitors',
+      kind: 'Prometheus',
+      context,
+      checkFn: checkPrometheusServiceMonitor,
+    });
   },
 };
 

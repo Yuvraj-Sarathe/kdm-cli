@@ -38,6 +38,9 @@ export class AzureOpenAIClient implements AIClient {
         temperature: this.temperature,
       }),
     });
+    if (!response.ok) {
+      throw new Error(`Azure OpenAI API call failed with status ${response.status}: ${response.statusText}`);
+    }
     const data = await response.json() as any;
     return data.choices?.[0]?.message?.content ?? '';
   }

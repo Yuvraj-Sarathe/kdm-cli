@@ -7,6 +7,15 @@ import { OllamaAIClient } from '../ai/ollama';
 import { OpenAIAIClient } from '../ai/openai';
 import { AnthropicAIClient } from '../ai/anthropic';
 import { CustomRestAIClient } from '../ai/custom-rest';
+import { AzureOpenAIClient } from '../ai/azure-openai';
+import { CohereAIClient } from '../ai/cohere';
+import { GoogleGeminiAIClient } from '../ai/google-gemini';
+import { GoogleVertexAIClient } from '../ai/google-vertex';
+import { AmazonBedrockAIClient } from '../ai/amazon-bedrock';
+import { HuggingFaceAIClient } from '../ai/huggingface';
+import { GroqAIClient } from '../ai/groq';
+import { IBMWatsonxAIClient } from '../ai/ibm-watsonx';
+import { OCIGenAIClient } from '../ai/oci-genai';
 
 const { mockStore } = vi.hoisted(() => ({
   mockStore: { providers: [] as any[], defaultProvider: undefined as string | undefined },
@@ -274,6 +283,78 @@ describe('auth command & AI clients', () => {
         expect(headers['x-api-key']).toBe('anthropicsecretkey');
       },
     },
+    {
+      backend: 'azure-openai',
+      addArgs: ['-p', 'azurekey', '-u', 'https://endpoint.openai.azure.com'],
+      mockJson: { choices: [{ message: { content: 'azure response' } }] },
+      expectedUrl: 'https://endpoint.openai.azure.com/openai/deployments/gpt-4/chat/completions?api-version=2024-02-01',
+      bodyExpectations: (body: any) => expect(body.messages[0].content).toBe('test-prompt'),
+      headersExpectations: (headers: any) => expect(headers['api-key']).toBe('azurekey'),
+    },
+    {
+      backend: 'cohere',
+      addArgs: ['-p', 'coherekey'],
+      mockJson: { text: 'cohere response' },
+      expectedUrl: 'https://api.cohere.ai/v1/chat',
+      bodyExpectations: (body: any) => expect(body.message).toBe('test-prompt'),
+      headersExpectations: (headers: any) => expect(headers['Authorization']).toBe('Bearer coherekey'),
+    },
+    {
+      backend: 'google-gemini',
+      addArgs: ['-p', 'geminikey'],
+      mockJson: { candidates: [{ content: { parts: [{ text: 'gemini response' }] } }] },
+      expectedUrl: 'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=geminikey',
+      bodyExpectations: (body: any) => expect(body.contents[0].parts[0].text).toBe('test-prompt'),
+      headersExpectations: () => {},
+    },
+    {
+      backend: 'google-vertex',
+      addArgs: ['-p', 'vertexkey', '-u', 'https://us-central1-aiplatform.googleapis.com'],
+      mockJson: { candidates: [{ content: { parts: [{ text: 'vertex response' }] } }] },
+      expectedUrl: 'https://us-central1-aiplatform.googleapis.com/v1/projects/-/locations/-/publishers/google/models/gemini-pro:generateContent',
+      bodyExpectations: (body: any) => expect(body.contents[0].parts[0].text).toBe('test-prompt'),
+      headersExpectations: (headers: any) => expect(headers['Authorization']).toBe('Bearer vertexkey'),
+    },
+    {
+      backend: 'amazon-bedrock',
+      addArgs: ['-p', 'bedrockkey', '-u', 'https://bedrock.us-east-1.amazonaws.com'],
+      mockJson: { results: [{ outputText: 'bedrock response' }] },
+      expectedUrl: 'https://bedrock.us-east-1.amazonaws.com/model/anthropic.claude-v2/invoke',
+      bodyExpectations: (body: any) => expect(body.inputText).toBe('test-prompt'),
+      headersExpectations: (headers: any) => expect(headers['Authorization']).toBe('Bearer bedrockkey'),
+    },
+    {
+      backend: 'huggingface',
+      addArgs: ['-p', 'hfkey'],
+      mockJson: [{ generated_text: 'hf response' }],
+      expectedUrl: 'https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1',
+      bodyExpectations: (body: any) => expect(body.inputs).toBe('test-prompt'),
+      headersExpectations: (headers: any) => expect(headers['Authorization']).toBe('Bearer hfkey'),
+    },
+    {
+      backend: 'groq',
+      addArgs: ['-p', 'groqkey'],
+      mockJson: { choices: [{ message: { content: 'groq response' } }] },
+      expectedUrl: 'https://api.groq.com/openai/v1/chat/completions',
+      bodyExpectations: (body: any) => expect(body.messages[0].content).toBe('test-prompt'),
+      headersExpectations: (headers: any) => expect(headers['Authorization']).toBe('Bearer groqkey'),
+    },
+    {
+      backend: 'ibm-watsonx',
+      addArgs: ['-p', 'watsonkey', '-u', 'https://us-south.ml.cloud.ibm.com', '--custom-header', 'X-Project-Id=watsonproj'],
+      mockJson: { results: [{ generated_text: 'watson response' }] },
+      expectedUrl: 'https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2024-03-14',
+      bodyExpectations: (body: any) => expect(body.input).toBe('test-prompt'),
+      headersExpectations: (headers: any) => expect(headers['Authorization']).toBe('Bearer watsonkey'),
+    },
+    {
+      backend: 'oci-genai',
+      addArgs: ['-p', 'ocikey', '-u', 'https://inference.generativeai.us-chicago-1.oci.oraclecloud.com', '--custom-header', 'X-Compartment-Id=ocicompartment'],
+      mockJson: { inferenceResponse: { generatedTexts: [{ text: 'oci response' }] } },
+      expectedUrl: 'https://inference.generativeai.us-chicago-1.oci.oraclecloud.com/20231130/actions/generateText',
+      bodyExpectations: (body: any) => expect(body.inferenceRequest.prompt).toBe('test-prompt'),
+      headersExpectations: (headers: any) => expect(headers['Authorization']).toBe('Bearer ocikey'),
+    },
   ])(
     'queries $backend provider client completion with url options: $addArgs',
     async ({ backend, addArgs, mockJson, expectedUrl, bodyExpectations, headersExpectations }) => {
@@ -305,6 +386,44 @@ describe('auth command & AI clients', () => {
     await anthropic.configure({ name: 'anthropic', password: 'key' });
     expect((anthropic as any).config.baseUrl).toBe('https://api.anthropic.com/v1/messages');
     expect((anthropic as any).config.model).toBe('claude-3-5-sonnet-latest');
+
+    const azure = new AzureOpenAIClient();
+    await azure.configure({ name: 'azure-openai', password: 'key', baseUrl: 'http://azure' });
+    expect((azure as any).model).toBe('gpt-4');
+
+    const cohere = new CohereAIClient();
+    await cohere.configure({ name: 'cohere' });
+    expect((cohere as any).model).toBe('command-r-plus');
+
+    const gemini = new GoogleGeminiAIClient();
+    await gemini.configure({ name: 'google-gemini' });
+    expect((gemini as any).model).toBe('gemini-pro');
+
+    const vertex = new GoogleVertexAIClient();
+    await vertex.configure({ name: 'google-vertex' });
+    expect((vertex as any).model).toBe('gemini-pro');
+
+    const bedrock = new AmazonBedrockAIClient();
+    await bedrock.configure({ name: 'amazon-bedrock' });
+    expect((bedrock as any).model).toBe('anthropic.claude-v2');
+
+    const hf = new HuggingFaceAIClient();
+    await hf.configure({ name: 'huggingface' });
+    expect((hf as any).model).toBe('mistralai/Mixtral-8x7B-Instruct-v0.1');
+
+    const groq = new GroqAIClient();
+    await groq.configure({ name: 'groq' });
+    expect((groq as any).model).toBe('llama3-70b-8192');
+
+    const watson = new IBMWatsonxAIClient();
+    await watson.configure({ name: 'ibm-watsonx' });
+    expect((watson as any).baseUrl).toBe('https://us-south.ml.cloud.ibm.com');
+    expect((watson as any).model).toBe('ibm/granite-13b-instruct-v2');
+
+    const oci = new OCIGenAIClient();
+    await oci.configure({ name: 'oci-genai' });
+    expect((oci as any).baseUrl).toBe('https://inference.generativeai.us-chicago-1.oci.oraclecloud.com');
+    expect((oci as any).model).toBe('cohere.command-r-plus');
   });
 
   // Testing failed completion scenarios
@@ -313,6 +432,15 @@ describe('auth command & AI clients', () => {
     { ClientClass: AnthropicAIClient, name: 'anthropic', config: { name: 'anthropic', password: 'key' } },
     { ClientClass: OllamaAIClient, name: 'ollama', config: { name: 'ollama' } },
     { ClientClass: CustomRestAIClient, name: 'customrest', config: { name: 'customrest', baseUrl: 'http://test' } },
+    { ClientClass: AzureOpenAIClient, name: 'azure-openai', config: { name: 'azure-openai', password: 'key', baseUrl: 'http://test' } },
+    { ClientClass: CohereAIClient, name: 'cohere', config: { name: 'cohere', password: 'key' } },
+    { ClientClass: GoogleGeminiAIClient, name: 'google-gemini', config: { name: 'google-gemini', password: 'key' } },
+    { ClientClass: GoogleVertexAIClient, name: 'google-vertex', config: { name: 'google-vertex', password: 'key', baseUrl: 'http://test' } },
+    { ClientClass: AmazonBedrockAIClient, name: 'amazon-bedrock', config: { name: 'amazon-bedrock', password: 'key', baseUrl: 'http://test' } },
+    { ClientClass: HuggingFaceAIClient, name: 'huggingface', config: { name: 'huggingface', password: 'key' } },
+    { ClientClass: GroqAIClient, name: 'groq', config: { name: 'groq', password: 'key' } },
+    { ClientClass: IBMWatsonxAIClient, name: 'ibm-watsonx', config: { name: 'ibm-watsonx', password: 'key', baseUrl: 'http://test' } },
+    { ClientClass: OCIGenAIClient, name: 'oci-genai', config: { name: 'oci-genai', password: 'key', baseUrl: 'http://test' } },
   ])('fails getCompletion on non-ok HTTP responses for $name', async ({ ClientClass, config }) => {
     fetchSpy.mockResolvedValueOnce({
       ok: false,

@@ -1,73 +1,116 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createServer } from '../server/server';
+import { registry } from '../analyzers';
+import { runAnalysis } from '../analysis/analysis';
+import { getConfig } from '../config/store';
 
 vi.mock('../config/store', () => ({
   getActiveFilters: vi.fn(() => []),
   getAIConfig: vi.fn(() => ({ providers: [] })),
   getCacheConfig: vi.fn(() => ({ type: 'file', enabled: false })),
-  getConfig: vi.fn(() => ({ ai: { providers: [] } })),
-}));
-
-vi.mock('../kubernetes/resources', () => ({
-  listPods: vi.fn(async () => []),
-  listDeployments: vi.fn(async () => []),
-  listServices: vi.fn(async () => []),
-  listPersistentVolumeClaims: vi.fn(async () => []),
-  listNodes: vi.fn(async () => []),
-  listReplicaSets: vi.fn(async () => []),
-  listStatefulSets: vi.fn(async () => []),
-  listDaemonSets: vi.fn(async () => []),
-  listJobs: vi.fn(async () => []),
-  listCronJobs: vi.fn(async () => []),
-  listIngresses: vi.fn(async () => []),
-  listConfigMaps: vi.fn(async () => []),
-  listHPAs: vi.fn(async () => []),
-  listPDBs: vi.fn(async () => []),
-  listNetworkPolicies: vi.fn(async () => []),
-  listEvents: vi.fn(async () => []),
-  listStorageClasses: vi.fn(async () => []),
-  listGatewayClasses: vi.fn(async () => []),
-  listGateways: vi.fn(async () => []),
-  listHTTPRoutes: vi.fn(async () => []),
-  readEndpoints: vi.fn(async () => undefined),
-  readPodLog: vi.fn(async () => ''),
-  labelsToSelector: vi.fn(() => ''),
-}));
-
-vi.mock('../cache', () => ({
-  createCacheProvider: vi.fn(() => ({
-    name: 'file',
-    configure: vi.fn(),
-    store: vi.fn(),
-    load: vi.fn(async () => null),
-    list: vi.fn(async () => []),
-    remove: vi.fn(),
-    exists: vi.fn(async () => false),
-    purge: vi.fn(),
+  getConfig: vi.fn(() => ({
+    ai: {
+      providers: [
+        { name: 'openai', model: 'gpt-4', password: 'secret-password' },
+      ],
+    },
   })),
 }));
 
+vi.mock('../analysis/analysis', () => ({
+  runAnalysis: vi.fn(async (options: any) => {
+    if (options.backend === 'error-backend') {
+      throw new Error('Mocked analysis failure');
+    }
+    return {
+      status: 'OK',
+      problems: 0,
+      results: [{ kind: 'Pod', name: 'test-pod', errors: [] }],
+      errors: [],
+    };
+  }),
+}));
+
 describe('HTTP Server', () => {
-  let server: { close: () => void } | null = null;
+  let serverInstance: { close: () => void; port: number } | null = null;
 
   afterEach(() => {
-    server?.close();
-    server = null;
+    serverInstance?.close();
+    serverInstance = null;
   });
 
   it('responds to GET /health with status ok', async () => {
-    server = await createServer({ port: 0 });
-    // Since port 0 picks a random port, we test the server creation itself
-    expect(server).toBeDefined();
-    expect(server.close).toBeInstanceOf(Function);
+    serverInstance = await createServer({ port: 0 });
+    const response = await fetch(`http://localhost:${serverInstance.port}/health`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({ status: 'ok' });
   });
 
-  it('creates server with custom options', async () => {
-    server = await createServer({
-      port: 0,
-      backend: 'noop',
-      filter: ['Pod'],
+  it('responds to GET /filters with registered analyzers', async () => {
+    serverInstance = await createServer({ port: 0 });
+    const response = await fetch(`http://localhost:${serverInstance.port}/filters`);
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.filters).toBeDefined();
+    expect(Array.isArray(body.filters)).toBe(true);
+  });
+
+  it('responds to GET /config with masked passwords', async () => {
+    serverInstance = await createServer({ port: 0 });
+    const response = await fetch(`http://localhost:${serverInstance.port}/config`);
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.ai.providers[0].password).toBe('****');
+  });
+
+  it('handles GET /config errors gracefully', async () => {
+    vi.mocked(getConfig).mockImplementationOnce(() => {
+      throw new Error('Config load error');
     });
-    expect(server).toBeDefined();
+    serverInstance = await createServer({ port: 0 });
+    const response = await fetch(`http://localhost:${serverInstance.port}/config`);
+    expect(response.status).toBe(500);
+    const body = await response.json() as any;
+    expect(body.error).toBe('Config load error');
+  });
+
+  it('responds to POST /analyze and handles body parameters', async () => {
+    serverInstance = await createServer({ port: 0, backend: 'openai' });
+    const response = await fetch(`http://localhost:${serverInstance.port}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ namespace: 'kube-system', explain: true }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.results).toHaveLength(1);
+    expect(vi.mocked(runAnalysis)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        namespace: 'kube-system',
+        explain: true,
+        backend: 'openai',
+      }),
+    );
+  });
+
+  it('handles POST /analyze errors', async () => {
+    serverInstance = await createServer({ port: 0 });
+    const response = await fetch(`http://localhost:${serverInstance.port}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backend: 'error-backend' }),
+    });
+    expect(response.status).toBe(500);
+    const body = await response.json() as any;
+    expect(body.error).toBe('Mocked analysis failure');
+  });
+
+  it('responds with 404 for unknown endpoints', async () => {
+    serverInstance = await createServer({ port: 0 });
+    const response = await fetch(`http://localhost:${serverInstance.port}/nonexistent`);
+    expect(response.status).toBe(404);
+    const body = await response.json() as any;
+    expect(body.error).toBe('Not found');
   });
 });

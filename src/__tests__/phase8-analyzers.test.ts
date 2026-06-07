@@ -81,7 +81,7 @@ vi.mock('../kubernetes/resources', () => ({
  * @param results Array of analyzer results.
  * @returns Concatenated error text.
  */
-const joinErrors = (results: any[]) =>
+const joinErrors = (results: any[]): string =>
   results.flatMap((r: any) => r.errors.map((e: any) => e.text)).join('\n');
 
 // ─── ReplicaSet Analyzer ───────────────────────────────────────────
@@ -124,16 +124,6 @@ describe('ReplicaSetAnalyzer', () => {
     expect(joinErrors(results)).toContain('quota exceeded');
   });
 
-  it('returns empty for healthy ReplicaSet with all replicas ready', async () => {
-    vi.mocked(listReplicaSets).mockResolvedValueOnce([{
-      metadata: { name: 'healthy-rs', namespace: 'default' },
-      spec: { replicas: 3 },
-      status: { readyReplicas: 3 },
-    } as any]);
-
-    await expect(ReplicaSetAnalyzer.analyze({})).resolves.toEqual([]);
-  });
-
   it('skips ReplicaSets with zero desired replicas', async () => {
     vi.mocked(listReplicaSets).mockResolvedValueOnce([{
       metadata: { name: 'scaled-down', namespace: 'default' },
@@ -165,16 +155,6 @@ describe('StatefulSetAnalyzer', () => {
     expect(results[0].namespace).toBe('cache');
     expect(results[0].errors[0].text).toContain('0/3 ready replicas');
   });
-
-  it('returns empty for healthy StatefulSet', async () => {
-    vi.mocked(listStatefulSets).mockResolvedValueOnce([{
-      metadata: { name: 'healthy-ss', namespace: 'default' },
-      spec: { replicas: 2 },
-      status: { readyReplicas: 2 },
-    } as any]);
-
-    await expect(StatefulSetAnalyzer.analyze({})).resolves.toEqual([]);
-  });
 });
 
 // ─── DaemonSet Analyzer ────────────────────────────────────────────
@@ -197,15 +177,6 @@ describe('DaemonSetAnalyzer', () => {
     const errors = joinErrors(results);
     expect(errors).toContain('3/5 ready pods');
     expect(errors).toContain('2 misscheduled pods');
-  });
-
-  it('returns empty when all pods are ready and none misscheduled', async () => {
-    vi.mocked(listDaemonSets).mockResolvedValueOnce([{
-      metadata: { name: 'healthy-ds', namespace: 'default' },
-      status: { desiredNumberScheduled: 3, numberReady: 3, numberMisscheduled: 0 },
-    } as any]);
-
-    await expect(DaemonSetAnalyzer.analyze({})).resolves.toEqual([]);
   });
 });
 
@@ -245,16 +216,6 @@ describe('JobAnalyzer', () => {
     const results = await JobAnalyzer.analyze({});
     expect(results[0].errors[0].text).toBe('Job has 1 failed pod');
   });
-
-  it('returns empty for completed Job', async () => {
-    vi.mocked(listJobs).mockResolvedValueOnce([{
-      metadata: { name: 'done-job', namespace: 'default' },
-      spec: { backoffLimit: 6 },
-      status: { succeeded: 1, conditions: [{ type: 'Complete', status: 'True' }] },
-    } as any]);
-
-    await expect(JobAnalyzer.analyze({})).resolves.toEqual([]);
-  });
 });
 
 // ─── CronJob Analyzer ──────────────────────────────────────────────
@@ -284,15 +245,6 @@ describe('CronJobAnalyzer', () => {
 
     const results = await CronJobAnalyzer.analyze({});
     expect(joinErrors(results)).toContain('no schedule defined');
-  });
-
-  it('returns empty for healthy CronJob', async () => {
-    vi.mocked(listCronJobs).mockResolvedValueOnce([{
-      metadata: { name: 'healthy-cj', namespace: 'default' },
-      spec: { schedule: '*/5 * * * *', suspend: false },
-    } as any]);
-
-    await expect(CronJobAnalyzer.analyze({})).resolves.toEqual([]);
   });
 });
 
@@ -337,18 +289,6 @@ describe('IngressAnalyzer', () => {
     const results = await IngressAnalyzer.analyze({});
     expect(joinErrors(results)).toContain('no backend service');
   });
-
-  it('returns empty for well-configured Ingress with TLS', async () => {
-    vi.mocked(listIngresses).mockResolvedValueOnce([{
-      metadata: { name: 'good-ing', namespace: 'default' },
-      spec: {
-        tls: [{ hosts: ['app.example.com'], secretName: 'tls-secret' }],
-        rules: [{ host: 'app.example.com', http: { paths: [{ path: '/', backend: { service: { name: 'app' } } }] } }],
-      },
-    } as any]);
-
-    await expect(IngressAnalyzer.analyze({})).resolves.toEqual([]);
-  });
 });
 
 // ─── ConfigMap Analyzer ────────────────────────────────────────────
@@ -366,24 +306,6 @@ describe('ConfigMapAnalyzer', () => {
     expect(results).toHaveLength(1);
     expect(results[0].kind).toBe('ConfigMap');
     expect(results[0].errors[0].text).toContain('no data keys');
-  });
-
-  it('returns empty for ConfigMap with data', async () => {
-    vi.mocked(listConfigMaps).mockResolvedValueOnce([{
-      metadata: { name: 'app-config', namespace: 'default' },
-      data: { 'config.yaml': 'key: value' },
-    } as any]);
-
-    await expect(ConfigMapAnalyzer.analyze({})).resolves.toEqual([]);
-  });
-
-  it('returns empty for ConfigMap with binary data only', async () => {
-    vi.mocked(listConfigMaps).mockResolvedValueOnce([{
-      metadata: { name: 'certs', namespace: 'default' },
-      binaryData: { 'ca.crt': 'base64data' },
-    } as any]);
-
-    await expect(ConfigMapAnalyzer.analyze({})).resolves.toEqual([]);
   });
 });
 
@@ -424,16 +346,6 @@ describe('HPAAnalyzer', () => {
     expect(errors).toContain('scaling limited');
     expect(errors).toContain('unable to scale');
   });
-
-  it('returns empty for HPA below max replicas with healthy conditions', async () => {
-    vi.mocked(listHPAs).mockResolvedValueOnce([{
-      metadata: { name: 'ok-hpa', namespace: 'default' },
-      spec: { maxReplicas: 10 },
-      status: { currentReplicas: 5 },
-    } as any]);
-
-    await expect(HPAAnalyzer.analyze({})).resolves.toEqual([]);
-  });
 });
 
 // ─── PDB Analyzer ──────────────────────────────────────────────────
@@ -455,15 +367,6 @@ describe('PDBAnalyzer', () => {
     const errors = joinErrors(results);
     expect(errors).toContain('zero disruptions');
     expect(errors).toContain('2/3 healthy pods');
-  });
-
-  it('returns empty when PDB allows disruptions and pods are healthy', async () => {
-    vi.mocked(listPDBs).mockResolvedValueOnce([{
-      metadata: { name: 'ok-pdb', namespace: 'default' },
-      status: { disruptionsAllowed: 1, expectedPods: 3, currentHealthy: 3 },
-    } as any]);
-
-    await expect(PDBAnalyzer.analyze({})).resolves.toEqual([]);
   });
 });
 
@@ -500,19 +403,6 @@ describe('NetworkPolicyAnalyzer', () => {
     const results = await NetworkPolicyAnalyzer.analyze({});
     expect(joinErrors(results)).toContain('blocks all egress');
   });
-
-  it('returns empty for NetworkPolicy with specific selector and matching rules', async () => {
-    vi.mocked(listNetworkPolicies).mockResolvedValueOnce([{
-      metadata: { name: 'allow-web', namespace: 'default' },
-      spec: {
-        podSelector: { matchLabels: { app: 'web' } },
-        policyTypes: ['Ingress'],
-        ingress: [{ from: [{ podSelector: { matchLabels: { role: 'api' } } }] }],
-      },
-    } as any]);
-
-    await expect(NetworkPolicyAnalyzer.analyze({})).resolves.toEqual([]);
-  });
 });
 
 // ─── Events Analyzer ───────────────────────────────────────────────
@@ -537,18 +427,6 @@ describe('EventsAnalyzer', () => {
     expect(results[0].parentObject).toBe('Pod');
     expect(results[0].errors[0].text).toContain('FailedScheduling');
     expect(results[0].errors[0].text).toContain('Insufficient cpu');
-  });
-
-  it('ignores Normal events', async () => {
-    vi.mocked(listEvents).mockResolvedValueOnce([{
-      metadata: { name: 'evt-normal', namespace: 'default' },
-      type: 'Normal',
-      reason: 'Scheduled',
-      message: 'Successfully assigned',
-      involvedObject: { name: 'pod-1', kind: 'Pod' },
-    } as any]);
-
-    await expect(EventsAnalyzer.analyze({})).resolves.toEqual([]);
   });
 });
 
@@ -586,19 +464,6 @@ describe('StorageAnalyzer', () => {
     expect(results[0].name).toBe('orphan-pvc');
     expect(results[0].errors[0].text).toContain("'deleted-class' which does not exist");
   });
-
-  it('returns empty for valid StorageClass and matching PVCs', async () => {
-    vi.mocked(listStorageClasses).mockResolvedValueOnce([{
-      metadata: { name: 'gp2' },
-      provisioner: 'ebs.csi.aws.com',
-    } as any]);
-    vi.mocked(listPersistentVolumeClaims).mockResolvedValueOnce([{
-      metadata: { name: 'data-pvc', namespace: 'default' },
-      spec: { storageClassName: 'gp2' },
-    } as any]);
-
-    await expect(StorageAnalyzer.analyze({})).resolves.toEqual([]);
-  });
 });
 
 // ─── Security Analyzer ─────────────────────────────────────────────
@@ -626,21 +491,6 @@ describe('SecurityAnalyzer', () => {
     expect(errors).toContain('may run as root');
     expect(errors).toContain('privileged mode');
     expect(errors).toContain('read-only root filesystem');
-  });
-
-  it('returns empty for fully hardened pod', async () => {
-    vi.mocked(listPods).mockResolvedValueOnce([{
-      metadata: { name: 'secure-pod', namespace: 'default' },
-      spec: {
-        securityContext: { runAsNonRoot: true },
-        containers: [{
-          name: 'app',
-          securityContext: { readOnlyRootFilesystem: true },
-        }],
-      },
-    } as any]);
-
-    await expect(SecurityAnalyzer.analyze({})).resolves.toEqual([]);
   });
 
   it('respects pod-level runAsNonRoot when container-level is absent', async () => {
@@ -697,17 +547,6 @@ describe('LogAnalyzer', () => {
     await expect(LogAnalyzer.analyze({})).resolves.toEqual([]);
     expect(readPodLog).not.toHaveBeenCalled();
   });
-
-  it('returns empty when unhealthy pod logs contain no error patterns', async () => {
-    vi.mocked(listPods).mockResolvedValueOnce([{
-      metadata: { name: 'slow-pod', namespace: 'default' },
-      status: { phase: 'Failed' },
-      spec: { containers: [{ name: 'worker' }] },
-    } as any]);
-    vi.mocked(readPodLog).mockResolvedValueOnce('INFO: processing\nDEBUG: complete');
-
-    await expect(LogAnalyzer.analyze({})).resolves.toEqual([]);
-  });
 });
 
 // ─── Gateway API Analyzers ─────────────────────────────────────────
@@ -729,15 +568,6 @@ describe('GatewayClassAnalyzer', () => {
     expect(joinErrors(results)).toContain('not accepted');
     expect(joinErrors(results)).toContain('InvalidConfig');
   });
-
-  it('returns empty for accepted GatewayClass', async () => {
-    vi.mocked(listGatewayClasses).mockResolvedValueOnce([{
-      metadata: { name: 'envoy' },
-      status: { conditions: [{ type: 'Accepted', status: 'True' }] },
-    }]);
-
-    await expect(GatewayClassAnalyzer.analyze({})).resolves.toEqual([]);
-  });
 });
 
 describe('GatewayAnalyzer', () => {
@@ -758,16 +588,6 @@ describe('GatewayAnalyzer', () => {
     expect(errors).toContain('no listeners');
     expect(errors).toContain('not programmed');
   });
-
-  it('returns empty for fully configured Gateway', async () => {
-    vi.mocked(listGateways).mockResolvedValueOnce([{
-      metadata: { name: 'ok-gw', namespace: 'default' },
-      spec: { listeners: [{ port: 80, protocol: 'HTTP' }] },
-      status: { conditions: [{ type: 'Accepted', status: 'True' }, { type: 'Programmed', status: 'True' }] },
-    }]);
-
-    await expect(GatewayAnalyzer.analyze({})).resolves.toEqual([]);
-  });
 });
 
 describe('HTTPRouteAnalyzer', () => {
@@ -787,16 +607,6 @@ describe('HTTPRouteAnalyzer', () => {
     const errors = joinErrors(results);
     expect(errors).toContain('not accepted');
     expect(errors).toContain('no backend references');
-  });
-
-  it('returns empty for accepted HTTPRoute with valid backends', async () => {
-    vi.mocked(listHTTPRoutes).mockResolvedValueOnce([{
-      metadata: { name: 'ok-route', namespace: 'default' },
-      spec: { rules: [{ backendRefs: [{ name: 'api-svc' }] }] },
-      status: { parents: [{ conditions: [{ type: 'Accepted', status: 'True' }] }] },
-    }]);
-
-    await expect(HTTPRouteAnalyzer.analyze({})).resolves.toEqual([]);
   });
 });
 
@@ -850,5 +660,194 @@ describe('Phase 8 analyzers — API failure propagation', () => {
   ])('$name analyzer propagates API failure', async ({ listFn, analyzer }) => {
     vi.mocked(listFn as any).mockRejectedValueOnce(new Error('API timeout'));
     await expect(analyzer.analyze({})).rejects.toThrow('API timeout');
+  });
+});
+
+// ─── Parameterized: Healthy Resource Green Paths ──────────────────
+
+describe('Phase 8 analyzers — healthy resource green paths', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    {
+      name: 'ReplicaSet',
+      analyzer: ReplicaSetAnalyzer,
+      setup: () => vi.mocked(listReplicaSets).mockResolvedValueOnce([{
+        metadata: { name: 'healthy-rs', namespace: 'default' },
+        spec: { replicas: 3 },
+        status: { readyReplicas: 3 },
+      } as any]),
+    },
+    {
+      name: 'StatefulSet',
+      analyzer: StatefulSetAnalyzer,
+      setup: () => vi.mocked(listStatefulSets).mockResolvedValueOnce([{
+        metadata: { name: 'healthy-ss', namespace: 'default' },
+        spec: { replicas: 2 },
+        status: { readyReplicas: 2 },
+      } as any]),
+    },
+    {
+      name: 'DaemonSet',
+      analyzer: DaemonSetAnalyzer,
+      setup: () => vi.mocked(listDaemonSets).mockResolvedValueOnce([{
+        metadata: { name: 'healthy-ds', namespace: 'default' },
+        status: { desiredNumberScheduled: 3, numberReady: 3, numberMisscheduled: 0 },
+      } as any]),
+    },
+    {
+      name: 'Job',
+      analyzer: JobAnalyzer,
+      setup: () => vi.mocked(listJobs).mockResolvedValueOnce([{
+        metadata: { name: 'done-job', namespace: 'default' },
+        spec: { backoffLimit: 6 },
+        status: { succeeded: 1, conditions: [{ type: 'Complete', status: 'True' }] },
+      } as any]),
+    },
+    {
+      name: 'CronJob',
+      analyzer: CronJobAnalyzer,
+      setup: () => vi.mocked(listCronJobs).mockResolvedValueOnce([{
+        metadata: { name: 'healthy-cj', namespace: 'default' },
+        spec: { schedule: '*/5 * * * *', suspend: false },
+      } as any]),
+    },
+    {
+      name: 'Ingress',
+      analyzer: IngressAnalyzer,
+      setup: () => vi.mocked(listIngresses).mockResolvedValueOnce([{
+        metadata: { name: 'good-ing', namespace: 'default' },
+        spec: {
+          tls: [{ hosts: ['app.example.com'], secretName: 'tls-secret' }],
+          rules: [{ host: 'app.example.com', http: { paths: [{ path: '/', backend: { service: { name: 'app' } } }] } }],
+        },
+      } as any]),
+    },
+    {
+      name: 'ConfigMap with data',
+      analyzer: ConfigMapAnalyzer,
+      setup: () => vi.mocked(listConfigMaps).mockResolvedValueOnce([{
+        metadata: { name: 'app-config', namespace: 'default' },
+        data: { 'config.yaml': 'key: value' },
+      } as any]),
+    },
+    {
+      name: 'ConfigMap with binary data',
+      analyzer: ConfigMapAnalyzer,
+      setup: () => vi.mocked(listConfigMaps).mockResolvedValueOnce([{
+        metadata: { name: 'certs', namespace: 'default' },
+        binaryData: { 'ca.crt': 'base64data' },
+      } as any]),
+    },
+    {
+      name: 'HPA',
+      analyzer: HPAAnalyzer,
+      setup: () => vi.mocked(listHPAs).mockResolvedValueOnce([{
+        metadata: { name: 'ok-hpa', namespace: 'default' },
+        spec: { maxReplicas: 10 },
+        status: { currentReplicas: 5 },
+      } as any]),
+    },
+    {
+      name: 'PDB',
+      analyzer: PDBAnalyzer,
+      setup: () => vi.mocked(listPDBs).mockResolvedValueOnce([{
+        metadata: { name: 'ok-pdb', namespace: 'default' },
+        status: { disruptionsAllowed: 1, expectedPods: 3, currentHealthy: 3 },
+      } as any]),
+    },
+    {
+      name: 'NetworkPolicy',
+      analyzer: NetworkPolicyAnalyzer,
+      setup: () => vi.mocked(listNetworkPolicies).mockResolvedValueOnce([{
+        metadata: { name: 'allow-web', namespace: 'default' },
+        spec: {
+          podSelector: { matchLabels: { app: 'web' } },
+          policyTypes: ['Ingress'],
+          ingress: [{ from: [{ podSelector: { matchLabels: { role: 'api' } } }] }],
+        },
+      } as any]),
+    },
+    {
+      name: 'Events with normal type',
+      analyzer: EventsAnalyzer,
+      setup: () => vi.mocked(listEvents).mockResolvedValueOnce([{
+        metadata: { name: 'evt-normal', namespace: 'default' },
+        type: 'Normal',
+        reason: 'Scheduled',
+        message: 'Successfully assigned',
+        involvedObject: { name: 'pod-1', kind: 'Pod' },
+      } as any]),
+    },
+    {
+      name: 'Storage',
+      analyzer: StorageAnalyzer,
+      setup: () => {
+        vi.mocked(listStorageClasses).mockResolvedValueOnce([{
+          metadata: { name: 'gp2' },
+          provisioner: 'ebs.csi.aws.com',
+        } as any]);
+        vi.mocked(listPersistentVolumeClaims).mockResolvedValueOnce([{
+          metadata: { name: 'data-pvc', namespace: 'default' },
+          spec: { storageClassName: 'gp2' },
+        } as any]);
+      },
+    },
+    {
+      name: 'Security hardened Pod',
+      analyzer: SecurityAnalyzer,
+      setup: () => vi.mocked(listPods).mockResolvedValueOnce([{
+        metadata: { name: 'secure-pod', namespace: 'default' },
+        spec: {
+          securityContext: { runAsNonRoot: true },
+          containers: [{
+            name: 'app',
+            securityContext: { readOnlyRootFilesystem: true },
+          }],
+        },
+      } as any]),
+    },
+    {
+      name: 'Log with healthy logs',
+      analyzer: LogAnalyzer,
+      setup: () => {
+        vi.mocked(listPods).mockResolvedValueOnce([{
+          metadata: { name: 'slow-pod', namespace: 'default' },
+          status: { phase: 'Failed' },
+          spec: { containers: [{ name: 'worker' }] },
+        } as any]);
+        vi.mocked(readPodLog).mockResolvedValueOnce('INFO: processing\nDEBUG: complete');
+      },
+    },
+    {
+      name: 'GatewayClass',
+      analyzer: GatewayClassAnalyzer,
+      setup: () => vi.mocked(listGatewayClasses).mockResolvedValueOnce([{
+        metadata: { name: 'envoy' },
+        status: { conditions: [{ type: 'Accepted', status: 'True' }] },
+      } as any]),
+    },
+    {
+      name: 'Gateway',
+      analyzer: GatewayAnalyzer,
+      setup: () => vi.mocked(listGateways).mockResolvedValueOnce([{
+        metadata: { name: 'ok-gw', namespace: 'default' },
+        spec: { listeners: [{ port: 80, protocol: 'HTTP' }] },
+        status: { conditions: [{ type: 'Accepted', status: 'True' }, { type: 'Programmed', status: 'True' }] },
+      } as any]),
+    },
+    {
+      name: 'HTTPRoute',
+      analyzer: HTTPRouteAnalyzer,
+      setup: () => vi.mocked(listHTTPRoutes).mockResolvedValueOnce([{
+        metadata: { name: 'ok-route', namespace: 'default' },
+        spec: { rules: [{ backendRefs: [{ name: 'api-svc' }] }] },
+        status: { parents: [{ conditions: [{ type: 'Accepted', status: 'True' }] }] },
+      } as any]),
+    },
+  ])('$name green path returns empty results', async ({ analyzer, setup }) => {
+    setup();
+    const results = await analyzer.analyze({});
+    expect(results).toEqual([]);
   });
 });

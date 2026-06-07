@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createMCPTools } from '../server/mcp';
+import { createMCPTools, startMCPServer } from '../server/mcp';
 
 vi.mock('../config/store', () => ({
   getActiveFilters: vi.fn(() => []),
@@ -87,5 +87,82 @@ describe('MCP Tools', () => {
     const issuesTool = tools.find((t) => t.name === 'get_resource_issues')!;
     const result = await issuesTool.handler({ kind: 'Pod' }) as any;
     expect(result.status).toBe('OK');
+  });
+
+  it('startMCPServer listens to stdin and processes JSON-RPC requests', async () => {
+    let dataCallback: (chunk: string) => void = () => {};
+    const onSpy = vi.spyOn(process.stdin, 'on').mockImplementation((event, callback) => {
+      if (event === 'data') {
+        dataCallback = callback as any;
+      }
+      return process.stdin;
+    });
+    const setEncodingSpy = vi.spyOn(process.stdin, 'setEncoding').mockImplementation(() => process.stdin);
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await startMCPServer();
+
+    expect(setEncodingSpy).toHaveBeenCalledWith('utf-8');
+    expect(onSpy).toHaveBeenCalledWith('data', expect.any(Function));
+
+    // Send a list tools request
+    const request = {
+      jsonrpc: '2.0',
+      method: 'tools/list',
+      id: 1,
+    };
+    await dataCallback(JSON.stringify(request) + '\n');
+
+    expect(writeSpy).toHaveBeenCalled();
+    const lastWrite = writeSpy.mock.calls[0][0] as string;
+    const response = JSON.parse(lastWrite.trim());
+    expect(response.id).toBe(1);
+    expect(response.result.tools).toBeDefined();
+
+    // Reset spy history
+    writeSpy.mockClear();
+
+    // Send a call tool request
+    const callRequest = {
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'list_filters',
+        arguments: {},
+      },
+      id: 2,
+    };
+    await dataCallback(JSON.stringify(callRequest) + '\n');
+    expect(writeSpy).toHaveBeenCalled();
+    const lastCallWrite = writeSpy.mock.calls[0][0] as string;
+    const callResponse = JSON.parse(lastCallWrite.trim());
+    expect(callResponse.id).toBe(2);
+    expect(callResponse.result.content[0].type).toBe('text');
+
+    // Test unknown method/tool
+    writeSpy.mockClear();
+    const badRequest = {
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'unknown_tool',
+      },
+      id: 3,
+    };
+    await dataCallback(JSON.stringify(badRequest) + '\n');
+    expect(writeSpy).toHaveBeenCalled();
+    const badResponse = JSON.parse((writeSpy.mock.calls[0][0] as string).trim());
+    expect(badResponse.error).toBeDefined();
+
+    // Test parsing error
+    writeSpy.mockClear();
+    await dataCallback('invalid json\n');
+    expect(writeSpy).toHaveBeenCalled();
+    const parseErrorResponse = JSON.parse((writeSpy.mock.calls[0][0] as string).trim());
+    expect(parseErrorResponse.error).toBeDefined();
+
+    onSpy.mockRestore();
+    setEncodingSpy.mockRestore();
+    writeSpy.mockRestore();
   });
 });

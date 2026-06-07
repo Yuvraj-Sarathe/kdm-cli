@@ -36,6 +36,44 @@ const scanLogForErrors = (logText: string, containerName: string): Failure[] => 
 };
 
 /**
+ * Analyzes logs for a single container.
+ * @param podName Name of the pod.
+ * @param namespace Namespace of the pod.
+ * @param containerName Name of the container.
+ * @param context Analyzer context options.
+ * @returns Array of failures found.
+ */
+const analyzeContainerLogs = async (
+  podName: string,
+  namespace: string,
+  containerName: string,
+  context: AnalyzerContext,
+): Promise<Failure[]> => {
+  const log = await readPodLog(podName, namespace, containerName, context);
+  return scanLogForErrors(log, containerName);
+};
+
+/**
+ * Analyzes logs for a single pod.
+ * @param pod The pod object to check.
+ * @param context Analyzer context options.
+ * @returns Array of failures found across all containers.
+ */
+const analyzePodLogs = async (
+  pod: k8s.V1Pod,
+  context: AnalyzerContext,
+): Promise<Failure[]> => {
+  const allErrors: Failure[] = [];
+  const podName = pod.metadata?.name ?? '';
+  const namespace = pod.metadata?.namespace ?? 'default';
+  for (const container of pod.spec?.containers ?? []) {
+    const errors = await analyzeContainerLogs(podName, namespace, container.name, context);
+    allErrors.push(...errors);
+  }
+  return allErrors;
+};
+
+/**
  * Analyzer implementation that scans Pod container logs for error patterns.
  * Only analyzes pods that are in a non-healthy state.
  */
@@ -50,17 +88,7 @@ export const LogAnalyzer: Analyzer = {
         pod.status?.containerStatuses?.some((cs) => !cs.ready);
       if (!isUnhealthy) continue;
 
-      const allErrors: Failure[] = [];
-      for (const container of pod.spec?.containers ?? []) {
-        const log = await readPodLog(
-          pod.metadata?.name ?? '',
-          pod.metadata?.namespace ?? 'default',
-          container.name,
-          context,
-        );
-        allErrors.push(...scanLogForErrors(log, container.name));
-      }
-
+      const allErrors = await analyzePodLogs(pod, context);
       if (allErrors.length > 0) {
         results.push({
           kind: 'Log',

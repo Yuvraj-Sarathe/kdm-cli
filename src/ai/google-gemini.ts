@@ -35,6 +35,9 @@ export class GoogleGeminiAIClient implements AIClient {
         generationConfig: { temperature: this.temperature },
       }),
     });
+    if (!response.ok) {
+      throw new Error(`Google Gemini API call failed with status ${response.status}: ${response.statusText}`);
+    }
     const data = await response.json() as any;
     return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   }

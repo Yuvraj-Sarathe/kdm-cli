@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { registry, PodAnalyzer, DeploymentAnalyzer } from '../analyzers';
 import { runAnalysis } from '../analysis/analysis';
-import { clearConfig, setAIConfig } from '../config/store';
+import { clearConfig, setAIConfig, setCacheConfig } from '../config/store';
 import { buildPrompt, buildDefaultPrompt } from '../ai/prompts';
 import { anonymize, deanonymize } from '../utils/text';
 
@@ -58,17 +58,19 @@ vi.mock('../kubernetes/resources', () => ({
     Object.entries(labels).map(([key, value]) => `${key}=${value}`).join(','),
 }));
 
+const mockCache = {
+  name: 'file',
+  configure: vi.fn(),
+  store: vi.fn(),
+  load: vi.fn(async () => null),
+  list: vi.fn(async () => []),
+  remove: vi.fn(),
+  exists: vi.fn(async () => false),
+  purge: vi.fn(),
+};
+
 vi.mock('../cache', () => ({
-  createCacheProvider: vi.fn(() => ({
-    name: 'file',
-    configure: vi.fn(),
-    store: vi.fn(),
-    load: vi.fn(async () => null),
-    list: vi.fn(async () => []),
-    remove: vi.fn(),
-    exists: vi.fn(async () => false),
-    purge: vi.fn(),
-  })),
+  createCacheProvider: vi.fn(() => mockCache),
 }));
 
 describe('AI Explain Mode', () => {
@@ -77,6 +79,16 @@ describe('AI Explain Mode', () => {
     registry.clear();
     registry.register(PodAnalyzer);
     registry.register(DeploymentAnalyzer);
+  });
+
+  const createMockAnalyzer = (name: string, podName: string, errors: string[]) => ({
+    name,
+    analyze: async () => [{
+      kind: 'Pod',
+      name: podName,
+      namespace: 'default',
+      errors: errors.map((text) => ({ text })),
+    }],
   });
 
   it('skips AI when no analyzer results exist', async () => {
@@ -92,15 +104,7 @@ describe('AI Explain Mode', () => {
   it('enriches results with details when --explain is used with noop provider', async () => {
     setAIConfig({ providers: [{ name: 'noop', model: '' }] });
 
-    const errorAnalyzer = {
-      name: 'TestPod',
-      analyze: async () => [{
-        kind: 'Pod',
-        name: 'crash-pod',
-        namespace: 'default',
-        errors: [{ text: 'CrashLoopBackOff: back-off restarting failed container' }],
-      }],
-    };
+    const errorAnalyzer = createMockAnalyzer('TestPod', 'crash-pod', ['CrashLoopBackOff: back-off restarting failed container']);
     registry.register(errorAnalyzer);
 
     const output = await runAnalysis({
@@ -119,15 +123,7 @@ describe('AI Explain Mode', () => {
       defaultProvider: 'openai',
     });
 
-    const errorAnalyzer = {
-      name: 'TestBackend',
-      analyze: async () => [{
-        kind: 'Pod',
-        name: 'test-pod',
-        namespace: 'default',
-        errors: [{ text: 'Error' }],
-      }],
-    };
+    const errorAnalyzer = createMockAnalyzer('TestBackend', 'test-pod', ['Error']);
     registry.register(errorAnalyzer);
 
     const output = await runAnalysis({
@@ -140,15 +136,7 @@ describe('AI Explain Mode', () => {
   });
 
   it('returns clear error for missing provider', async () => {
-    const errorAnalyzer = {
-      name: 'TestMissing',
-      analyze: async () => [{
-        kind: 'Pod',
-        name: 'test',
-        namespace: 'default',
-        errors: [{ text: 'Error' }],
-      }],
-    };
+    const errorAnalyzer = createMockAnalyzer('TestMissing', 'test', ['Error']);
     registry.register(errorAnalyzer);
 
     await expect(
@@ -159,15 +147,7 @@ describe('AI Explain Mode', () => {
   it('includes details in JSON output when --explain is used', async () => {
     setAIConfig({ providers: [{ name: 'noop', model: '' }] });
 
-    const errorAnalyzer = {
-      name: 'TestJson',
-      analyze: async () => [{
-        kind: 'Pod',
-        name: 'json-pod',
-        namespace: 'default',
-        errors: [{ text: 'Error' }],
-      }],
-    };
+    const errorAnalyzer = createMockAnalyzer('TestJson', 'json-pod', ['Error']);
     registry.register(errorAnalyzer);
 
     const output = await runAnalysis({
@@ -182,19 +162,43 @@ describe('AI Explain Mode', () => {
   });
 
   it('does not add details when --explain is not set', async () => {
-    const errorAnalyzer = {
-      name: 'NoExplain',
-      analyze: async () => [{
-        kind: 'Pod',
-        name: 'pod-1',
-        namespace: 'default',
-        errors: [{ text: 'Error' }],
-      }],
-    };
+    const errorAnalyzer = createMockAnalyzer('NoExplain', 'pod-1', ['Error']);
     registry.register(errorAnalyzer);
 
     const output = await runAnalysis({ filters: ['NoExplain'] });
     expect(output.results[0].details).toBeUndefined();
+  });
+
+  it('anonymizes and deanonymizes error text when anonymize: true is used', async () => {
+    setAIConfig({ providers: [{ name: 'noop', model: '' }] });
+    const errorAnalyzer = createMockAnalyzer('TestAnonymize', 'sensitive-pod', ['Error in sensitive-pod']);
+    registry.register(errorAnalyzer);
+
+    const output = await runAnalysis({
+      filters: ['TestAnonymize'],
+      explain: true,
+      backend: 'noop',
+      anonymize: true,
+    });
+
+    expect(output.results[0].details).toBeDefined();
+  });
+
+  it('loads explanation from cache when cache hit occurs', async () => {
+    setCacheConfig({ type: 'file', enabled: true });
+    vi.mocked(mockCache.load).mockResolvedValueOnce('cached explanation');
+
+    setAIConfig({ providers: [{ name: 'noop', model: '' }] });
+    const errorAnalyzer = createMockAnalyzer('TestCache', 'cache-pod', ['Error']);
+    registry.register(errorAnalyzer);
+
+    const output = await runAnalysis({
+      filters: ['TestCache'],
+      explain: true,
+      backend: 'noop',
+    });
+
+    expect(output.results[0].details).toBe('cached explanation');
   });
 });
 

@@ -35,6 +35,9 @@ export class HuggingFaceAIClient implements AIClient {
         parameters: { temperature: this.temperature, max_new_tokens: 1024 },
       }),
     });
+    if (!response.ok) {
+      throw new Error(`Hugging Face API call failed with status ${response.status}: ${response.statusText}`);
+    }
     const data = await response.json() as any;
     return Array.isArray(data) ? (data[0]?.generated_text ?? '') : (data.generated_text ?? '');
   }
