@@ -5,6 +5,8 @@ export interface KDMConfig {
   cache?: CacheConfig;
   output?: OutputConfig;
   notifications?: NotificationConfig;
+  integrations?: IntegrationSettingsConfig;
+  customAnalyzers?: CustomAnalyzerEntry[];
 }
 
 export interface AIConfig {
@@ -41,6 +43,20 @@ export interface CacheConfig {
 export interface OutputConfig {
   format: 'text' | 'json';
   language: string;
+}
+
+/** Configuration for enabling/disabling integration analyzers. */
+export interface IntegrationSettingsConfig {
+  keda?: boolean;
+  kyverno?: boolean;
+  prometheus?: boolean;
+}
+
+/** Stored configuration for a custom analyzer. */
+export interface CustomAnalyzerEntry {
+  name: string;
+  command?: string;
+  url?: string;
 }
 
 export interface NotificationConfig {

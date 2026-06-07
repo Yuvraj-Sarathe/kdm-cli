@@ -11,15 +11,19 @@ import { registerConfigCommand } from './config';
 import { registerAnalyzeCommand } from './analyze';
 import { registerFiltersCommand } from './filters';
 import { registerAuthCommand } from './auth';
+import { registerCacheCommand } from './cache';
+import { registerServeCommand } from './serve';
+import { registerCustomAnalyzerCommand } from './custom-analyzer';
 import { logger } from '../utils/logger';
 import { showWelcomeBanner } from '../ui/banner';
 import { createSpinner } from '../ui/spinner';
 import { checkForUpdates } from '../utils/version-check';
+import { registerIntegrations } from '../integrations/integrations';
 
 program
   .name('kdm')
   .description('Kubernetes and Docker Monitoring CLI')
-  .version('1.1.0');
+  .version('1.2.5');
 
 // Register modular commands
 registerShowCommand(program);
@@ -30,10 +34,16 @@ registerConfigCommand(program);
 registerAnalyzeCommand(program);
 registerFiltersCommand(program);
 registerAuthCommand(program);
+registerCacheCommand(program);
+registerServeCommand(program);
+registerCustomAnalyzerCommand(program);
+
+// Register integration analyzers
+registerIntegrations();
 
 const run = async () => {
   if (!process.argv.slice(2).length) {
-    showWelcomeBanner('1.1.0');
+    showWelcomeBanner('1.2.5');
 
     const spinner = createSpinner('Checking connections...').start();
     let hadError = false;
@@ -88,4 +98,3 @@ const run = async () => {
 };
 
 run();
-

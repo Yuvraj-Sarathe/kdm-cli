@@ -26,9 +26,26 @@ const parseOutput = (output: string): AnalysisOptions['output'] => {
 };
 
 /**
- * Registers the `analyze` command and its options on the Commander program.
- * @param program Commander program instance.
+ * Parses a custom headers string into a key-value record.
+ * Expected format: "Key1:Value1,Key2:Value2".
+ * @param value The raw custom headers string.
+ * @param previous Previously accumulated headers.
+ * @returns Headers record.
  */
+const parseCustomHeaders = (
+  value: string,
+  previous: Record<string, string>,
+): Record<string, string> => {
+  const result = { ...previous };
+  for (const pair of value.split(',')) {
+    const idx = pair.indexOf(':');
+    if (idx > 0) {
+      result[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+    }
+  }
+  return result;
+};
+
 /**
  * Builds the analysis configuration options from the CLI raw options.
  * @param options CLI parsed options.
@@ -46,6 +63,12 @@ const buildAnalysisOptions = (options: any, signal: AbortSignal): AnalysisOption
   kubeconfig: options.kubeconfig,
   kubecontext: options.kubecontext,
   signal,
+  explain: Boolean(options.explain),
+  backend: options.backend,
+  language: options.language,
+  anonymize: Boolean(options.anonymize),
+  customHeaders: options.customHeaders,
+  noCache: Boolean(options.noCache),
 });
 
 /**
@@ -133,5 +156,11 @@ export const registerAnalyzeCommand = (program: Command) => {
     .option('--with-doc', 'Reserve Kubernetes documentation lookup for analyzer output')
     .option('--kubeconfig <path>', 'Path to kubeconfig file')
     .option('--kubecontext <context>', 'Kubernetes context to use')
+    .option('-e, --explain', 'Enable AI-powered explanations for detected problems')
+    .option('-b, --backend <backend>', 'AI backend provider to use (e.g. openai, ollama, noop)')
+    .option('-l, --language <lang>', 'Language for AI responses', 'english')
+    .option('-a, --anonymize', 'Anonymize sensitive resource names in AI prompts')
+    .option('-r, --custom-headers <headers>', 'Custom HTTP headers (Key:Value,Key2:Value2)', parseCustomHeaders, {})
+    .option('-c, --no-cache', 'Skip cache for AI explanations')
     .action(handleAnalyze);
 };

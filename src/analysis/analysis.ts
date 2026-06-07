@@ -1,12 +1,19 @@
 import { AnalysisOptions, AnalysisOutput, AnalysisStats } from './types';
 import { registry } from '../analyzers';
 import { measureDuration } from './stats';
-import { getActiveFilters, getAIConfig } from '../config/store';
+import { getActiveFilters, getAIConfig, getCacheConfig } from '../config/store';
 import { Analyzer, AnalyzerResult } from '../analyzers/types';
+import { createAIClient } from '../ai/factory';
+import { buildPrompt } from '../ai/prompts';
+import { anonymize, deanonymize } from '../utils/text';
+import { createCacheProvider } from '../cache';
+import { logger } from '../utils/logger';
 
 const DEFAULT_FILTERS = ['Pod', 'Deployment', 'Service', 'PersistentVolumeClaim', 'Node'];
 const MAX_ALLOWED_CONCURRENCY = 100;
 const DEFAULT_CONCURRENCY = 10;
+const DEFAULT_LANGUAGE = 'english';
+const DEFAULT_FALLBACK_BACKEND = 'openai';
 
 /**
  * Resolves the list of filters to be run based on option inputs, default configuration,
@@ -71,6 +78,164 @@ function tryAttachProvider(output: AnalysisOutput): void {
 }
 
 /**
+ * Resolves the AI backend name to use for explain mode.
+ * Priority: explicit --backend flag > configured default provider > fallback to openai.
+ * @param options The analysis options.
+ * @returns The resolved backend name string.
+ */
+function resolveBackend(options: AnalysisOptions): string {
+  if (options.backend) return options.backend;
+  try {
+    const aiConfig = getAIConfig();
+    if (aiConfig?.defaultProvider) return aiConfig.defaultProvider;
+  } catch {
+    // Fail-safe
+  }
+  return DEFAULT_FALLBACK_BACKEND;
+}
+
+/** Options for building a cache key. */
+interface CacheKeyParams {
+  provider: string;
+  model: string;
+  language: string;
+  failureText: string;
+}
+
+/**
+ * Builds a deterministic cache key by hashing provider, model, language, and failure text.
+ * @param params Parameters to include in the cache key.
+ * @returns A hex-encoded SHA-256 hash string.
+ */
+async function buildCacheKey(params: CacheKeyParams): Promise<string> {
+  const { createHash } = await import('node:crypto');
+  const normalized = `${params.provider}:${params.model}:${params.language}:${params.failureText.trim()}`;
+  return createHash('sha256').update(normalized).digest('hex');
+}
+
+/**
+ * Attempts to load a cached AI response for a given failure text.
+ * Returns null and warns on errors without throwing.
+ * @param cacheKey The cache key to look up.
+ * @param noCache Whether caching is bypassed via --no-cache flag.
+ * @returns Cached response string or null.
+ */
+async function tryLoadFromCache(cacheKey: string, noCache: boolean): Promise<string | null> {
+  if (noCache) return null;
+  try {
+    const cacheConfig = getCacheConfig();
+    if (!cacheConfig.enabled) return null;
+    const cache = createCacheProvider(cacheConfig);
+    return await cache.load(cacheKey);
+  } catch {
+    logger.warn('Cache read failed, proceeding with AI call');
+    return null;
+  }
+}
+
+/**
+ * Attempts to store an AI response in cache.
+ * Warns on errors without throwing.
+ * @param cacheKey The cache key to store under.
+ * @param data The AI response text to cache.
+ */
+async function tryStoreToCache(cacheKey: string, data: string): Promise<void> {
+  try {
+    const cacheConfig = getCacheConfig();
+    if (!cacheConfig.enabled) return;
+    const cache = createCacheProvider(cacheConfig);
+    await cache.store(cacheKey, data);
+  } catch {
+    logger.warn('Cache write failed, continuing without caching');
+  }
+}
+
+/** Parameters for explaining a single analyzer result via AI. */
+interface ExplainSingleParams {
+  result: AnalyzerResult;
+  backend: string;
+  language: string;
+  shouldAnonymize: boolean;
+  noCache: boolean;
+  customHeaders?: Record<string, string>;
+}
+
+/**
+ * Explains a single analyzer result by building a prompt, calling the AI provider,
+ * and attaching the response to the result's details field.
+ * @param params Parameters for the explain operation.
+ */
+async function explainSingleResult(params: ExplainSingleParams): Promise<void> {
+  const failureText = params.result.errors.map((e) => e.text).join('\n');
+  let promptText = failureText;
+  let mapping: { original: string; placeholder: string }[] = [];
+
+  if (params.shouldAnonymize) {
+    const anonymized = anonymize(failureText);
+    promptText = anonymized.text;
+    mapping = anonymized.mapping;
+  }
+
+  const prompt = buildPrompt({
+    failureText: promptText,
+    language: params.language,
+    analyzerName: params.result.kind,
+  });
+
+  const client = await createAIClient(params.backend);
+  const model = (client as any).model ?? '';
+
+  const cacheKey = await buildCacheKey({
+    provider: params.backend,
+    model,
+    language: params.language,
+    failureText: promptText,
+  });
+
+  const cached = await tryLoadFromCache(cacheKey, params.noCache);
+  if (cached) {
+    params.result.details = params.shouldAnonymize ? deanonymize(cached, mapping) : cached;
+    return;
+  }
+
+  const response = await client.getCompletion(prompt);
+  const explanation = params.shouldAnonymize ? deanonymize(response, mapping) : response;
+  params.result.details = explanation;
+
+  if (!params.noCache) {
+    await tryStoreToCache(cacheKey, response);
+  }
+}
+
+/**
+ * Enriches analysis results with AI-powered explanations when explain mode is enabled.
+ * Skips AI calls if no results exist. Resolves backend, builds prompts, and handles
+ * anonymization and caching.
+ * @param results The analyzer results to enrich.
+ * @param options The analysis options.
+ */
+async function explainResults(results: AnalyzerResult[], options: AnalysisOptions): Promise<void> {
+  if (!options.explain || results.length === 0) return;
+
+  const backend = resolveBackend(options);
+  const language = options.language ?? DEFAULT_LANGUAGE;
+  const shouldAnonymize = options.anonymize ?? false;
+  const noCache = options.noCache ?? false;
+
+  for (const result of results) {
+    if (!result.errors.length) continue;
+    await explainSingleResult({
+      result,
+      backend,
+      language,
+      shouldAnonymize,
+      noCache,
+      customHeaders: options.customHeaders,
+    });
+  }
+}
+
+/**
  * Executes a full Kubernetes analysis run across selected analyzers in parallel,
  * respecting concurrency limits and monitoring cancellation signals.
  * @param options Options configuration directing namespace, filters, context, and stats.
@@ -118,6 +283,8 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
   });
 
   await Promise.all(workers);
+
+  await explainResults(results, options);
 
   const problems = results.reduce((acc, curr) => acc + curr.errors.length, 0);
 

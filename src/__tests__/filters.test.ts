@@ -32,7 +32,7 @@ describe('filters command', () => {
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('- Pod'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('- Deployment'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Available but inactive filters:'));
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('(none)'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('- ReplicaSet'));
   });
 
   it('lists active and available but inactive filters with explicit activeFilters', async () => {

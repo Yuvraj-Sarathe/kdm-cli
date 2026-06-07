@@ -11,6 +11,12 @@ export interface AnalysisOptions {
   withStats?: boolean;
   withDocs?: boolean;
   signal?: AbortSignal;
+  explain?: boolean;
+  backend?: string;
+  language?: string;
+  anonymize?: boolean;
+  customHeaders?: Record<string, string>;
+  noCache?: boolean;
 }
 
 export interface AnalysisStats {
