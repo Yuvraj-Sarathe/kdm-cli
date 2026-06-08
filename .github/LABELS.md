@@ -1,7 +1,7 @@
 # PR Label System
 
 This document describes all labels automatically applied to pull requests by the
-[pr-labeler](../.github/scripts/pr-labeler.cjs) script.
+[pr-labeler](scripts/pr-labeler.cjs) script.
 
 - **Type labels** derived from the PR title
 - **Size labels** derived from total line changes
@@ -110,5 +110,5 @@ All label definitions and thresholds are centralized in
 - `prLabels.modulePaths` — file path glob patterns → module key mappings
 
 Modify thresholds or add new labels by editing this file. The
-[pr-labeler](../.github/scripts/pr-labeler.cjs) script reads the configuration
+[pr-labeler](scripts/pr-labeler.cjs) script reads the configuration
 at runtime via the shared config loader.
