@@ -1071,13 +1071,18 @@ async function runScenario(scenario, index) {
   const capturedLogs = [];
   const originalConsoleLog = console.log;
   const originalConsoleError = console.error;
+  const redactSensitiveText = (text) => text
+    .replace(/((?:password|passwd|token|api[_-]?key|secret)\s*[:=]\s*)([^,\s}]+)/gi, '$1[REDACTED]')
+    .replace(/("(?:password|passwd|token|api[_-]?key|secret)"\s*:\s*")([^"]+)(")/gi, '$1[REDACTED]$3');
+  const sanitizeArgsForOutput = (args) =>
+    args.map(a => redactSensitiveText(String(a))).join(' ');
   console.log = (...args) => {
     capturedLogs.push(args.map(a => String(a)).join(' '));
-    originalConsoleLog(...args);
+    originalConsoleLog(sanitizeArgsForOutput(args));
   };
   console.error = (...args) => {
     capturedLogs.push(args.map(a => String(a)).join(' '));
-    originalConsoleError(...args);
+    originalConsoleError(sanitizeArgsForOutput(args));
   };
 
   try {
