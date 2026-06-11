@@ -59,11 +59,19 @@ export const getRunningContainers = async (options?: { forceAlert?: boolean }): 
 };
 
 export interface DockerSystemStats {
+  /** The aggregated CPU usage percentage. */
   cpu: number;
+  /** The aggregated memory usage in bytes. */
   memoryUsage: number;
+  /** The maximum memory limit across running containers or total host memory. */
   memoryLimit: number;
 }
 
+/**
+ * Formats a byte number to decimal-scaled string (e.g. "1.4GB").
+ * @param bytes The raw number of bytes.
+ * @returns Decimal-formatted bytes string.
+ */
 export const formatDockerBytes = (bytes: number): string => {
   if (bytes <= 0) return '0B';
   const decimalK = 1000;
@@ -73,62 +81,81 @@ export const formatDockerBytes = (bytes: number): string => {
   return `${parseFloat(num.toFixed(1))}${sizes[i]}`;
 };
 
+/**
+ * Calculates a single container's CPU usage percentage based on its stats and pre-stats.
+ * @param cpuStats The current CPU stats of the container.
+ * @param precpuStats The previous CPU stats of the container.
+ * @returns The calculated CPU usage percentage.
+ */
+const calculateCpuPercent = (cpuStats: any, precpuStats: any): number => {
+  if (!cpuStats || !precpuStats || !cpuStats.cpu_usage || !precpuStats.cpu_usage) {
+    return 0;
+  }
+  const cpuDelta = (cpuStats.cpu_usage.total_usage || 0) - (precpuStats.cpu_usage.total_usage || 0);
+  const systemCpuDelta = (cpuStats.system_cpu_usage || 0) - (precpuStats.system_cpu_usage || 0);
+  const onlineCpus = cpuStats.online_cpus || cpuStats.cpu_usage.percpu_usage?.length || 1;
+  
+  if (systemCpuDelta > 0 && cpuDelta > 0) {
+    return (cpuDelta / systemCpuDelta) * onlineCpus * 100;
+  }
+  return 0;
+};
+
+/**
+ * Calculates a single container's Memory usage in bytes subtracting cache memory.
+ * @param memoryStats The memory stats of the container.
+ * @returns Calculated memory usage in bytes.
+ */
+const calculateMemoryUsage = (memoryStats: any): number => {
+  if (!memoryStats) return 0;
+  let usage = memoryStats.usage || 0;
+  const cache = memoryStats.stats?.cache || memoryStats.stats?.inactive_file || 0;
+  if (usage > cache) {
+    usage -= cache;
+  }
+  return usage;
+};
+
+/**
+ * Fetches stats for a single container.
+ * @param docker The Dockerode client.
+ * @param containerId The ID of the container.
+ * @returns Stats containing CPU percentage, memory usage, and memory limit.
+ */
+const fetchContainerStats = async (docker: any, containerId: string) => {
+  try {
+    const container = docker.getContainer(containerId);
+    const stats = await container.stats({ stream: false });
+    return {
+      cpuPercent: calculateCpuPercent(stats.cpu_stats, stats.precpu_stats),
+      memoryUsage: calculateMemoryUsage(stats.memory_stats),
+      limit: stats.memory_stats?.limit || 0,
+    };
+  } catch {
+    return { cpuPercent: 0, memoryUsage: 0, limit: 0 };
+  }
+};
+
+/**
+ * Aggregates CPU and Memory resource usage stats for all running Docker containers.
+ * @returns The aggregated Docker stats, or null if the client fails to connect.
+ */
 export const getDockerSystemStats = async (): Promise<DockerSystemStats | null> => {
   const docker = getDockerClient();
   try {
     const containers = await docker.listContainers({ filters: { status: ['running'] } });
     if (containers.length === 0) {
-      let limit = 0;
-      try {
-        const info = await docker.info();
-        limit = info.MemTotal || 0;
-      } catch {}
-      return { cpu: 0, memoryUsage: 0, memoryLimit: limit };
+      const info = await docker.info().catch(() => ({ MemTotal: 0 }));
+      return { cpu: 0, memoryUsage: 0, memoryLimit: info.MemTotal || 0 };
     }
 
+    const statsPromises = containers.map(c => fetchContainerStats(docker, c.Id));
+    const results = await Promise.all(statsPromises);
+    
     let totalCpu = 0;
     let totalMemory = 0;
     let maxLimit = 0;
-
-    const statsPromises = containers.map(async (c) => {
-      try {
-        const container = docker.getContainer(c.Id);
-        const stats = await container.stats({ stream: false });
-        
-        // Calculate CPU usage percentage
-        const cpuStats = stats.cpu_stats;
-        const precpuStats = stats.precpu_stats;
-        let cpuPercent = 0;
-        
-        if (cpuStats && precpuStats && cpuStats.cpu_usage && precpuStats.cpu_usage) {
-          const cpuDelta = (cpuStats.cpu_usage.total_usage || 0) - (precpuStats.cpu_usage.total_usage || 0);
-          const systemCpuDelta = (cpuStats.system_cpu_usage || 0) - (precpuStats.system_cpu_usage || 0);
-          const onlineCpus = cpuStats.online_cpus || cpuStats.cpu_usage.percpu_usage?.length || 1;
-          
-          if (systemCpuDelta > 0 && cpuDelta > 0) {
-            cpuPercent = (cpuDelta / systemCpuDelta) * onlineCpus * 100;
-          }
-        }
-
-        // Calculate Memory usage
-        let memoryUsage = 0;
-        let limit = 0;
-        if (stats.memory_stats) {
-          memoryUsage = stats.memory_stats.usage || 0;
-          const cache = stats.memory_stats.stats?.cache || stats.memory_stats.stats?.inactive_file || 0;
-          if (memoryUsage > cache) {
-            memoryUsage -= cache;
-          }
-          limit = stats.memory_stats.limit || 0;
-        }
-
-        return { cpuPercent, memoryUsage, limit };
-      } catch (err) {
-        return { cpuPercent: 0, memoryUsage: 0, limit: 0 };
-      }
-    });
-
-    const results = await Promise.all(statsPromises);
+    
     for (const res of results) {
       totalCpu += res.cpuPercent;
       totalMemory += res.memoryUsage;
@@ -138,10 +165,8 @@ export const getDockerSystemStats = async (): Promise<DockerSystemStats | null> 
     }
 
     if (maxLimit === 0) {
-      try {
-        const info = await docker.info();
-        maxLimit = info.MemTotal || 0;
-      } catch {}
+      const info = await docker.info().catch(() => ({ MemTotal: 0 }));
+      maxLimit = info.MemTotal || 0;
     }
 
     return {
@@ -153,4 +178,5 @@ export const getDockerSystemStats = async (): Promise<DockerSystemStats | null> 
     return null;
   }
 };
+
 

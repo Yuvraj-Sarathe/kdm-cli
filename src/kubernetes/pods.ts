@@ -62,11 +62,19 @@ export const getRunningPods = async (options?: { forceAlert?: boolean }): Promis
 };
 
 export interface K8sClusterStats {
+  /** The aggregated CPU usage/requests representation. */
   cpu: string;
+  /** The aggregated memory usage/requests representation. */
   memory: string;
+  /** The source of the statistics. */
   source: 'metrics-server' | 'requests' | 'N/A';
 }
 
+/**
+ * Parses a Kubernetes CPU quantity (e.g., "450m", "2", "125000000n") into millicores.
+ * @param q The CPU quantity representation as a string or number.
+ * @returns The parsed CPU value in millicores.
+ */
 export function parseK8sCpuQuantity(q: string | number): number {
   if (typeof q === 'number') return q * 1000;
   if (!q) return 0;
@@ -88,6 +96,11 @@ export function parseK8sCpuQuantity(q: string | number): number {
   }
 }
 
+/**
+ * Parses a Kubernetes memory quantity (e.g., "1Gi", "512Mi", "2k") into bytes.
+ * @param q The memory quantity representation as a string or number.
+ * @returns The parsed memory value in bytes.
+ */
 export function parseK8sMemoryQuantity(q: string | number): number {
   if (typeof q === 'number') return q;
   if (!q) return 0;
@@ -121,6 +134,11 @@ export function parseK8sMemoryQuantity(q: string | number): number {
   return val;
 }
 
+/**
+ * Formats a byte number to binary-scaled string (e.g. "2GiB").
+ * @param bytes The raw number of bytes.
+ * @returns Binary-formatted bytes string.
+ */
 export const formatK8sBytes = (bytes: number): string => {
   if (bytes <= 0) return '0B';
   const k = 1024;
@@ -130,8 +148,103 @@ export const formatK8sBytes = (bytes: number): string => {
   return `${parseFloat(num.toFixed(1))}${sizes[i]}`;
 };
 
-export const getK8sClusterStats = async (): Promise<K8sClusterStats> => {
-  // 1. Try to fetch metrics-server node stats
+/**
+ * Sums up CPU and Memory usage from metrics-server node items.
+ * @param items Node metrics items from custom API.
+ * @returns Aggregated CPU in millicores and memory in bytes.
+ */
+const sumNodeMetrics = (items: any[]) => {
+  let cpu = 0;
+  let memory = 0;
+  for (const item of items) {
+    cpu += parseK8sCpuQuantity(item.usage?.cpu || '0');
+    memory += parseK8sMemoryQuantity(item.usage?.memory || '0');
+  }
+  return { cpu, memory };
+};
+
+/**
+ * Sums up CPU and Memory usage from metrics-server pod items.
+ * @param items Pod metrics items from custom API.
+ * @returns Aggregated CPU in millicores and memory in bytes.
+ */
+const sumPodMetrics = (items: any[]) => {
+  let cpu = 0;
+  let memory = 0;
+  for (const item of items) {
+    const containers = item.containers || [];
+    for (const container of containers) {
+      cpu += parseK8sCpuQuantity(container.usage?.cpu || '0');
+      memory += parseK8sMemoryQuantity(container.usage?.memory || '0');
+    }
+  }
+  return { cpu, memory };
+};
+
+/**
+ * Checks if a pod's status phase should be considered for native requests fallback.
+ * @param phase The pod phase status string.
+ * @returns True if the pod is active, false otherwise.
+ */
+const isActivePodPhase = (phase?: string): boolean => {
+  return phase === 'Running' || phase === 'Pending';
+};
+
+/**
+ * Sums container requests for a single container.
+ * @param container The Kubernetes container spec.
+ * @returns Object with parsed CPU and Memory requests.
+ */
+const getContainerRequests = (container: any) => {
+  const reqs = container.resources?.requests;
+  return {
+    cpu: reqs?.cpu ? parseK8sCpuQuantity(reqs.cpu) : 0,
+    memory: reqs?.memory ? parseK8sMemoryQuantity(reqs.memory) : 0,
+  };
+};
+
+/**
+ * Sums up requests for a single pod's containers.
+ * @param pod The Kubernetes pod object.
+ * @returns Object with parsed CPU and Memory requests.
+ */
+const sumPodRequests = (pod: any) => {
+  let cpu = 0;
+  let memory = 0;
+  const containers = pod.spec?.containers || [];
+  const initContainers = pod.spec?.initContainers || [];
+  
+  for (const container of [...containers, ...initContainers]) {
+    const req = getContainerRequests(container);
+    cpu += req.cpu;
+    memory += req.memory;
+  }
+  return { cpu, memory };
+};
+
+/**
+ * Sums up resource requests from a list of pods.
+ * @param pods List of pods to aggregate requests from.
+ * @returns Aggregated CPU requests in millicores and memory requests in bytes.
+ */
+const sumAllPodsRequests = (pods: any[]) => {
+  let cpu = 0;
+  let memory = 0;
+  for (const pod of pods) {
+    if (isActivePodPhase(pod.status?.phase)) {
+      const podReq = sumPodRequests(pod);
+      cpu += podReq.cpu;
+      memory += podReq.memory;
+    }
+  }
+  return { cpu, memory };
+};
+
+/**
+ * Fetches metrics-server node stats.
+ * @returns Node metrics, or null if it fails or returns no nodes.
+ */
+const fetchNodeMetrics = async () => {
   try {
     const customApi = getCustomObjectsApi();
     const res = await customApi.listClusterCustomObject({
@@ -139,30 +252,18 @@ export const getK8sClusterStats = async (): Promise<K8sClusterStats> => {
       version: 'v1beta1',
       plural: 'nodes',
     });
-    
     const items = (res as any)?.items || [];
-    if (items.length > 0) {
-      let totalCpuMillicores = 0;
-      let totalMemoryBytes = 0;
-      
-      for (const item of items) {
-        const cpuQty = item.usage?.cpu || '0';
-        const memQty = item.usage?.memory || '0';
-        totalCpuMillicores += parseK8sCpuQuantity(cpuQty);
-        totalMemoryBytes += parseK8sMemoryQuantity(memQty);
-      }
-      
-      return {
-        cpu: `${Math.round(totalCpuMillicores)}m`,
-        memory: formatK8sBytes(totalMemoryBytes),
-        source: 'metrics-server',
-      };
-    }
-  } catch (error) {
-    // metrics-server might not be available or permissions missing
+    return items.length > 0 ? sumNodeMetrics(items) : null;
+  } catch {
+    return null;
   }
+};
 
-  // 2. Try to fallback to Pod Metrics
+/**
+ * Fetches metrics-server pod stats.
+ * @returns Pod metrics, or null if it fails or returns no pods.
+ */
+const fetchPodMetrics = async () => {
   try {
     const customApi = getCustomObjectsApi();
     const res = await customApi.listClusterCustomObject({
@@ -170,72 +271,61 @@ export const getK8sClusterStats = async (): Promise<K8sClusterStats> => {
       version: 'v1beta1',
       plural: 'pods',
     });
-    
     const items = (res as any)?.items || [];
-    if (items.length > 0) {
-      let totalCpuMillicores = 0;
-      let totalMemoryBytes = 0;
-      
-      for (const item of items) {
-        const containers = item.containers || [];
-        for (const container of containers) {
-          const cpuQty = container.usage?.cpu || '0';
-          const memQty = container.usage?.memory || '0';
-          totalCpuMillicores += parseK8sCpuQuantity(cpuQty);
-          totalMemoryBytes += parseK8sMemoryQuantity(memQty);
-        }
-      }
-      
-      return {
-        cpu: `${Math.round(totalCpuMillicores)}m`,
-        memory: formatK8sBytes(totalMemoryBytes),
-        source: 'metrics-server',
-      };
-    }
-  } catch (error) {
-    // Pod metrics also not available
+    return items.length > 0 ? sumPodMetrics(items) : null;
+  } catch {
+    return null;
   }
+};
 
-  // 3. Fallback to native cluster stats (sum of requests of all pods)
+/**
+ * Fetches native pod resource requests sum.
+ * @returns Native pod resource requests, or null if it fails or has no metrics.
+ */
+const fetchNativeRequests = async () => {
   try {
     const api = getK8sApi();
     const res = await api.listPodForAllNamespaces();
     const pods = res.items || [];
-    
-    let totalCpuMillicores = 0;
-    let totalMemoryBytes = 0;
-    
-    for (const pod of pods) {
-      const phase = pod.status?.phase;
-      if (phase !== 'Running' && phase !== 'Pending') {
-        continue;
-      }
-      
-      const containers = pod.spec?.containers || [];
-      const initContainers = pod.spec?.initContainers || [];
-      
-      for (const container of [...containers, ...initContainers]) {
-        const requests = container.resources?.requests;
-        if (requests) {
-          if (requests.cpu) {
-            totalCpuMillicores += parseK8sCpuQuantity(requests.cpu);
-          }
-          if (requests.memory) {
-            totalMemoryBytes += parseK8sMemoryQuantity(requests.memory);
-          }
-        }
-      }
-    }
-    
-    if (totalCpuMillicores > 0 || totalMemoryBytes > 0) {
-      return {
-        cpu: `${Math.round(totalCpuMillicores)}m`,
-        memory: formatK8sBytes(totalMemoryBytes),
-        source: 'requests',
-      };
-    }
-  } catch (error) {
-    // Native API query failed
+    const stats = sumAllPodsRequests(pods);
+    return (stats.cpu > 0 || stats.memory > 0) ? stats : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Fetches the aggregated CPU and Memory statistics for the Kubernetes cluster,
+ * checking metrics-server node metrics, metrics-server pod metrics, or falling
+ * back to native pod requests sum.
+ * @returns Kubernetes cluster stats.
+ */
+export const getK8sClusterStats = async (): Promise<K8sClusterStats> => {
+  const nodeStats = await fetchNodeMetrics();
+  if (nodeStats) {
+    return {
+      cpu: `${Math.round(nodeStats.cpu)}m`,
+      memory: formatK8sBytes(nodeStats.memory),
+      source: 'metrics-server',
+    };
+  }
+
+  const podStats = await fetchPodMetrics();
+  if (podStats) {
+    return {
+      cpu: `${Math.round(podStats.cpu)}m`,
+      memory: formatK8sBytes(podStats.memory),
+      source: 'metrics-server',
+    };
+  }
+
+  const nativeRequests = await fetchNativeRequests();
+  if (nativeRequests) {
+    return {
+      cpu: `${Math.round(nativeRequests.cpu)}m`,
+      memory: formatK8sBytes(nativeRequests.memory),
+      source: 'requests',
+    };
   }
 
   return {
@@ -244,4 +334,5 @@ export const getK8sClusterStats = async (): Promise<K8sClusterStats> => {
     source: 'N/A',
   };
 };
+
 
