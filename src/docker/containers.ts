@@ -57,3 +57,100 @@ export const getRunningContainers = async (options?: { forceAlert?: boolean }): 
     throw error;
   }
 };
+
+export interface DockerSystemStats {
+  cpu: number;
+  memoryUsage: number;
+  memoryLimit: number;
+}
+
+export const formatDockerBytes = (bytes: number): string => {
+  if (bytes <= 0) return '0B';
+  const decimalK = 1000;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(decimalK)), sizes.length - 1);
+  const num = bytes / Math.pow(decimalK, i);
+  return `${parseFloat(num.toFixed(1))}${sizes[i]}`;
+};
+
+export const getDockerSystemStats = async (): Promise<DockerSystemStats | null> => {
+  const docker = getDockerClient();
+  try {
+    const containers = await docker.listContainers({ filters: { status: ['running'] } });
+    if (containers.length === 0) {
+      let limit = 0;
+      try {
+        const info = await docker.info();
+        limit = info.MemTotal || 0;
+      } catch {}
+      return { cpu: 0, memoryUsage: 0, memoryLimit: limit };
+    }
+
+    let totalCpu = 0;
+    let totalMemory = 0;
+    let maxLimit = 0;
+
+    const statsPromises = containers.map(async (c) => {
+      try {
+        const container = docker.getContainer(c.Id);
+        const stats = await container.stats({ stream: false });
+        
+        // Calculate CPU usage percentage
+        const cpuStats = stats.cpu_stats;
+        const precpuStats = stats.precpu_stats;
+        let cpuPercent = 0;
+        
+        if (cpuStats && precpuStats && cpuStats.cpu_usage && precpuStats.cpu_usage) {
+          const cpuDelta = (cpuStats.cpu_usage.total_usage || 0) - (precpuStats.cpu_usage.total_usage || 0);
+          const systemCpuDelta = (cpuStats.system_cpu_usage || 0) - (precpuStats.system_cpu_usage || 0);
+          const onlineCpus = cpuStats.online_cpus || cpuStats.cpu_usage.percpu_usage?.length || 1;
+          
+          if (systemCpuDelta > 0 && cpuDelta > 0) {
+            cpuPercent = (cpuDelta / systemCpuDelta) * onlineCpus * 100;
+          }
+        }
+
+        // Calculate Memory usage
+        let memoryUsage = 0;
+        let limit = 0;
+        if (stats.memory_stats) {
+          memoryUsage = stats.memory_stats.usage || 0;
+          const cache = stats.memory_stats.stats?.cache || stats.memory_stats.stats?.inactive_file || 0;
+          if (memoryUsage > cache) {
+            memoryUsage -= cache;
+          }
+          limit = stats.memory_stats.limit || 0;
+        }
+
+        return { cpuPercent, memoryUsage, limit };
+      } catch (err) {
+        return { cpuPercent: 0, memoryUsage: 0, limit: 0 };
+      }
+    });
+
+    const results = await Promise.all(statsPromises);
+    for (const res of results) {
+      totalCpu += res.cpuPercent;
+      totalMemory += res.memoryUsage;
+      if (res.limit > maxLimit) {
+        maxLimit = res.limit;
+      }
+    }
+
+    if (maxLimit === 0) {
+      try {
+        const info = await docker.info();
+        maxLimit = info.MemTotal || 0;
+      } catch {}
+    }
+
+    return {
+      cpu: totalCpu,
+      memoryUsage: totalMemory,
+      memoryLimit: maxLimit,
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
